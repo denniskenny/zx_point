@@ -1,0 +1,455 @@
+/*
+ * starfield.c - Six-directional starfield for ZX Spectrum (z88dk + SDCC)
+ *
+ * Controls:
+ *   Q / A  –  starfield up / down
+ *   O / P  –  starfield left / right
+ *   W / S  –  stars into / out of screen
+ *
+ * Optimised: erase-and-redraw directly to screen RAM.
+ * All integer maths, no floating point.
+ */
+
+#include <string.h>
+#include <stdint.h>
+
+/* --- Screen layout --- */
+#define SCREEN   ((uint8_t *)0x4000)
+#define ATTR     ((uint8_t *)0x5800)
+#define PIX_SIZE 6144
+#define ATTR_SZ  768
+
+/* --- Keyboard half-row port addresses --- */
+#define KEY_QWERT  0xFBFE   /* Q=bit0  W=bit1 */
+#define KEY_ASDFG  0xFDFE   /* A=bit0  S=bit1 */
+#define KEY_POIUY  0xDFFE   /* P=bit0  O=bit1 */
+
+/* --- Kempston joystick --- */
+#define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 F1=4 F2=5 */
+
+/* --- Starfield parameters --- */
+#define NUM_STARS  100
+#define XY_HALF    128      /* x,y range: -128 .. +127  */
+#define XY_SPAN    256      /* XY_HALF * 2              */
+#define Z_MIN      1
+#define Z_MAX      255
+#define FOCAL      128      /* perspective focal length  */
+#define SPEED      3        /* pixels per frame per key  */
+
+typedef struct {
+    int16_t x, y, z;
+    uint8_t psx, psy;   /* previous screen coords (psy=255 = not visible) */
+    uint8_t pclose;     /* previous frame was 2x2 */
+} star_t;
+
+#define PSY_NONE 255    /* sentinel: star was off-screen last frame */
+
+static star_t stars[NUM_STARS];
+
+/* ------------------------------------------------------------------ */
+/* 16-bit LFSR PRNG                                                    */
+/* ------------------------------------------------------------------ */
+static uint16_t lfsr = 0xACE1;
+static uint16_t weyl = 0;
+
+static uint16_t rng(void)
+{
+    uint16_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^
+                    (lfsr >> 3) ^ (lfsr >> 5)) & 1;
+    lfsr = (lfsr >> 1) | (bit << 15);
+    weyl += 0x9E35;
+    return lfsr ^ weyl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Read ZX Spectrum keyboard half-row                                  */
+/* fastcall: 16-bit port in HL, result in L                            */
+/* ------------------------------------------------------------------ */
+static uint8_t read_keys(uint16_t port) __z88dk_fastcall __naked
+{
+    (void)port;
+    __asm
+        ld  b, h
+        ld  c, l
+        in  a, (c)
+        ld  l, a
+        ret
+    __endasm;
+}
+
+/* ------------------------------------------------------------------ */
+/* Random coordinate helpers                                           */
+/* ------------------------------------------------------------------ */
+static int16_t rand_xy(void)
+{
+    return (int16_t)(rng() & 0xFF) - XY_HALF;   /* -128 .. +127 */
+}
+
+static int16_t rand_z(void)
+{
+    int16_t v = (int16_t)(rng() & 0xFF);
+    return v ? v : 1;                            /* 1 .. 255 */
+}
+
+/* ------------------------------------------------------------------ */
+/* Initialise all stars to random positions                            */
+/* ------------------------------------------------------------------ */
+static void init_stars(void)
+{
+    uint8_t i;
+    for (i = 0; i < NUM_STARS; i++) {
+        stars[i].x = rand_xy();
+        stars[i].y = rand_xy();
+        stars[i].z = rand_z();
+        stars[i].psy = PSY_NONE;
+        stars[i].pclose = 0;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Screen address helper (inlined by the compiler with -SO3)           */
+/* ------------------------------------------------------------------ */
+static uint16_t scr_off(uint8_t x, uint8_t y)
+{
+    return ((uint16_t)(y & 0xC0) << 5) |
+           ((uint16_t)(y & 0x07) << 8) |
+           ((uint16_t)(y & 0x38) << 2) |
+           (x >> 3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Plot a single pixel — correct ZX Spectrum interleaved address       */
+/* ------------------------------------------------------------------ */
+static void plot(uint8_t *buf, uint8_t x, uint8_t y)
+{
+    if (y >= 192) return;
+    buf[scr_off(x, y)] |= (0x80 >> (x & 7));
+}
+
+/* ------------------------------------------------------------------ */
+/* Clear a single pixel                                                */
+/* ------------------------------------------------------------------ */
+static void unplot(uint8_t *buf, uint8_t x, uint8_t y)
+{
+    if (y >= 192) return;
+    buf[scr_off(x, y)] &= ~(0x80 >> (x & 7));
+}
+
+/* ------------------------------------------------------------------ */
+/* 16x16 scuba diver sprite — two animation frames (2 bytes per row)   */
+/* Vertical orientation: head up, fins down                            */
+/* ------------------------------------------------------------------ */
+#define DIVER_X  120   /* (256 - 16) / 2, byte-aligned */
+#define DIVER_Y  88    /* (192 - 16) / 2               */
+
+/* Frame 1: arms slightly out, legs together */
+static const uint8_t diver_f1[32] = {
+    0x01, 0x80,  /* .......*X*....... snorkel   */
+    0x03, 0xC0,  /* ......**XX**...... head      */
+    0x07, 0xE0,  /* .....***XXX**..... head+mask */
+    0x07, 0xE0,  /* .....***XXX**..... head      */
+    0x03, 0xC0,  /* ......**XX**...... neck      */
+    0x0F, 0xF0,  /* ....****XXXX****.. shoulders */
+    0x1F, 0xF8,  /* ...*****XXXXX***.. arms+body */
+    0x0F, 0xF0,  /* ....****XXXX****.. body+tank */
+    0x0F, 0xF0,  /* ....****XXXX****.. torso     */
+    0x07, 0xE0,  /* .....***XXX**..... torso     */
+    0x07, 0xE0,  /* .....***XXX**..... waist     */
+    0x03, 0xC0,  /* ......**XX**...... legs      */
+    0x03, 0xC0,  /* ......**XX**...... legs      */
+    0x03, 0xC0,  /* ......**XX**...... legs      */
+    0x07, 0xE0,  /* .....***XXX**..... fins      */
+    0x0F, 0xF0,  /* ....****XXXX****.. flippers  */
+};
+
+/* Frame 2: arms wide, legs kicking apart */
+static const uint8_t diver_f2[32] = {
+    0x01, 0x80,  /* .......*X*....... snorkel   */
+    0x03, 0xC0,  /* ......**XX**...... head      */
+    0x07, 0xE0,  /* .....***XXX**..... head+mask */
+    0x07, 0xE0,  /* .....***XXX**..... head      */
+    0x03, 0xC0,  /* ......**XX**...... neck      */
+    0x0F, 0xF0,  /* ....****XXXX****.. shoulders */
+    0x3F, 0xFC,  /* ..******XXXXXX**.. arms wide */
+    0x4F, 0xF2,  /* .*..****XXXX**..*. hands out */
+    0x0F, 0xF0,  /* ....****XXXX****.. torso     */
+    0x07, 0xE0,  /* .....***XXX**..... torso     */
+    0x07, 0xE0,  /* .....***XXX**..... waist     */
+    0x06, 0x60,  /* .....**..**...... legs split */
+    0x0C, 0x30,  /* ....**.....**..... legs apart*/
+    0x18, 0x18,  /* ...**.......**.... legs wide */
+    0x38, 0x1C,  /* ..***......***..... fins     */
+    0x78, 0x1E,  /* .****......****.... flippers */
+};
+
+/* Write a byte-aligned 16x16 sprite directly (overwrites, no flicker) */
+static void write_sprite(uint8_t *buf, const uint8_t *spr,
+                         uint8_t x, uint8_t y)
+{
+    uint8_t row, py;
+    uint16_t off;
+
+    for (row = 0; row < 16; row++) {
+        py = y + row;
+        if (py >= 192) continue;
+        off = scr_off(x, py);
+        buf[off]     = spr[row * 2];
+        buf[off + 1] = spr[row * 2 + 1];
+    }
+}
+
+/* Erase a star at its previous screen position */
+static void erase_star(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
+{
+    unplot(buf, px, py);
+    if (pclose) {
+        if (px < 255) unplot(buf, px + 1, py);
+        if (py < 191) unplot(buf, px, py + 1);
+        if (px < 255 && py < 191) unplot(buf, px + 1, py + 1);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Beeper ping with echo: main burst then two quieter repeats          */
+/* Preserves border colour (blue = 1)                                  */
+/* ------------------------------------------------------------------ */
+static void beep_ping(void) __naked
+{
+    __asm
+        ld  c, 254
+
+        ;; --- main ping: 30 half-cycles -------------------------
+        ld  b, 30
+    bp_t1:
+        ld  a, 17
+        out (c), a
+        ld  a, 20
+    bp_d1a:
+        dec a
+        jr  nz, bp_d1a
+        ld  a, 1
+        out (c), a
+        ld  a, 20
+    bp_d1b:
+        dec a
+        jr  nz, bp_d1b
+        djnz bp_t1
+
+        ;; --- silence gap 1 (~40 ms) ---------------------------
+        ld  hl, 5400
+    bp_g1:
+        dec hl
+        ld  a, h
+        or  l
+        jr  nz, bp_g1
+
+        ;; --- echo 1: 18 half-cycles ----------------------------
+        ld  b, 18
+    bp_t2:
+        ld  a, 17
+        out (c), a
+        ld  a, 20
+    bp_d2a:
+        dec a
+        jr  nz, bp_d2a
+        ld  a, 1
+        out (c), a
+        ld  a, 20
+    bp_d2b:
+        dec a
+        jr  nz, bp_d2b
+        djnz bp_t2
+
+        ;; --- silence gap 2 (~70 ms) ---------------------------
+        ld  hl, 9400
+    bp_g2:
+        dec hl
+        ld  a, h
+        or  l
+        jr  nz, bp_g2
+
+        ;; --- echo 2: 10 half-cycles ----------------------------
+        ld  b, 10
+    bp_t3:
+        ld  a, 17
+        out (c), a
+        ld  a, 20
+    bp_d3a:
+        dec a
+        jr  nz, bp_d3a
+        ld  a, 1
+        out (c), a
+        ld  a, 20
+    bp_d3b:
+        dec a
+        jr  nz, bp_d3b
+        djnz bp_t3
+
+        ;; --- silence gap 3 (~100 ms) --------------------------
+        ld  hl, 13500
+    bp_g3:
+        dec hl
+        ld  a, h
+        or  l
+        jr  nz, bp_g3
+
+        ;; --- echo 3: 5 half-cycles (faintest) ------------------
+        ld  b, 5
+    bp_t4:
+        ld  a, 17
+        out (c), a
+        ld  a, 20
+    bp_d4a:
+        dec a
+        jr  nz, bp_d4a
+        ld  a, 1
+        out (c), a
+        ld  a, 20
+    bp_d4b:
+        dec a
+        jr  nz, bp_d4b
+        djnz bp_t4
+
+        ret
+    __endasm;
+}
+
+/* ------------------------------------------------------------------ */
+/* Main loop                                                           */
+/* ------------------------------------------------------------------ */
+int main(void)
+{
+    uint8_t i, k, joy;
+    uint8_t kq, kw, ka, ks, ko, kp;
+    int16_t sx, sy;
+    int8_t vx = 0, vy = 0, vz = -2;  /* continuous velocity; default: gentle forward drift */
+    uint8_t frame = 0;
+    uint8_t ping_ctr = 12;  /* frames until next ping */
+    const uint8_t *diver_spr;
+
+    init_stars();
+
+    /* Clear screen pixels once */
+    memset(SCREEN, 0, PIX_SIZE);
+
+    /* Paper=blue(1), Ink=cyan(5), border=blue */
+    memset(ATTR, 0x0D, ATTR_SZ);
+    /* Sprite cells: paper=blue(1), ink=yellow(6) — 2x2 char cells */
+    ATTR[11 * 32 + 15] = 0x0E;
+    ATTR[11 * 32 + 16] = 0x0E;
+    ATTR[12 * 32 + 15] = 0x0E;
+    ATTR[12 * 32 + 16] = 0x0E;
+    __asm
+        ld  a, 1
+        out (254), a
+    __endasm;
+
+    while (1) {
+        /* --- Sample keyboard and adjust velocity --- */
+        k  = read_keys(KEY_QWERT);
+        kq = !(k & 0x01);              /* Q — steer up      */
+        kw = !(k & 0x02);              /* W — accelerate in */
+
+        k  = read_keys(KEY_ASDFG);
+        ka = !(k & 0x01);              /* A — steer down    */
+        ks = !(k & 0x02);              /* S — accelerate out */
+
+        k  = read_keys(KEY_POIUY);
+        kp = !(k & 0x01);              /* P — steer right   */
+        ko = !(k & 0x02);              /* O — steer left    */
+
+        /* --- Kempston joystick (active-high, OR into key flags) --- */
+        joy = read_keys(KEMP_PORT);
+        if (joy & 0x08) kq = 1;        /* Up    = Q  */
+        if (joy & 0x04) ka = 1;        /* Down  = A  */
+        if (joy & 0x02) ko = 1;        /* Left  = O  */
+        if (joy & 0x01) kp = 1;        /* Right = P  */
+        if (joy & 0x10) kw = 1;        /* Fire1 = W  */
+        if (joy & 0x20) ks = 1;        /* Fire2 = S  */
+
+        if (kq && vy <  SPEED) vy++;
+        if (ka && vy > -SPEED) vy--;
+        if (ko && vx <  SPEED) vx++;
+        if (kp && vx > -SPEED) vx--;
+        if (kw && vz > -SPEED) vz--;
+        if (ks && vz <  SPEED) vz++;
+
+        /* --- Vsync --- */
+        __asm
+            halt
+        __endasm;
+
+        /* --- Update & draw each star --- */
+        for (i = 0; i < NUM_STARS; i++) {
+
+            /* Erase star at its previous screen position */
+            if (stars[i].psy != PSY_NONE)
+                erase_star(SCREEN, stars[i].psx, stars[i].psy,
+                           stars[i].pclose);
+
+            /* Apply continuous velocity */
+            stars[i].x += vx;
+            stars[i].y += vy;
+            stars[i].z += vz;
+
+            /* Respawn star when it passes through Z bounds */
+            if (stars[i].z < Z_MIN) {
+                stars[i].x = rand_xy();
+                stars[i].y = rand_xy();
+                stars[i].z = Z_MAX;
+            } else if (stars[i].z > Z_MAX) {
+                stars[i].x = rand_xy();
+                stars[i].y = rand_xy();
+                stars[i].z = Z_MIN;
+            }
+
+            /* Wrap X and Y so stars re-enter from the opposite edge */
+            if (stars[i].x < -XY_HALF)
+                stars[i].x += XY_SPAN;
+            else if (stars[i].x >= XY_HALF)
+                stars[i].x -= XY_SPAN;
+
+            if (stars[i].y < -XY_HALF)
+                stars[i].y += XY_SPAN;
+            else if (stars[i].y >= XY_HALF)
+                stars[i].y -= XY_SPAN;
+
+            /* Perspective projection (all 16-bit safe) */
+            sx = (stars[i].x * FOCAL) / stars[i].z + 128;
+            sy = (stars[i].y * FOCAL) / stars[i].z + 96;
+
+            /* Clip to visible screen area and draw */
+            if (sx >= 0 && sx < 256 && sy >= 0 && sy < 192) {
+                plot(SCREEN, (uint8_t)sx, (uint8_t)sy);
+
+                /* Close stars (z < 85) get a 2x2 dot for depth cue */
+                stars[i].pclose = (stars[i].z < (Z_MAX / 3)) ? 1 : 0;
+                if (stars[i].pclose) {
+                    if (sx < 255)
+                        plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)sy);
+                    if (sy < 191)
+                        plot(SCREEN, (uint8_t)sx, (uint8_t)(sy + 1));
+                    if (sx < 255 && sy < 191)
+                        plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)(sy + 1));
+                }
+                stars[i].psx = (uint8_t)sx;
+                stars[i].psy = (uint8_t)sy;
+            } else {
+                stars[i].psy = PSY_NONE;
+            }
+        }
+
+        /* --- Write sprite directly (no erase needed, no flicker) --- */
+        diver_spr = (frame & 0x08) ? diver_f2 : diver_f1;
+        write_sprite(SCREEN, diver_spr, DIVER_X, DIVER_Y);
+        frame++;
+
+        /* --- Ping beeper --- */
+        if (--ping_ctr == 0) {
+            ping_ctr = 12;
+            beep_ping();
+        }
+    }
+
+    return 0;
+}
