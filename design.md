@@ -148,7 +148,7 @@ The game will be implemented using the ZX Spectrum 48k. The game will be written
 * Variables, data structures and graphics should be global where possible.
 * Features like the Sea Line and Sea Floor should be implemented in assembly and extracted as functions
 * The game should use the Floating Bus port to avoid flicker. This should be 48k/128k safe and have a HALT fallback in case the game is in an emulator that doesn't support the Floating Bus trick.
-* Keep direct writes for the starfield, Boat and Great Old One, and only use SP1 for overlapping sprites (Player, Rays, Sharks and Treasures). The starfield should be updated at the end of the frame.
+* Use direct writes for the starfield, Boat, Great Old One,and sprites (Player, Rays, Sharks and Treasures).
 * Plan to use Einar's compression library for the Great Old One and the Boat graphics;  https://github.com/einar-saukas/ZX0
 
 ### Sound
@@ -234,11 +234,19 @@ The sea floor should never ascend above the player's position (e.g. the centre o
 * The Great Old One graphic should only be drawn to the scanline where the sea floor appears.
 
 ## Minimap
-The 2d minimap will be displayed in the bottom right hand corner of the screen, using XOR writes. It will be a white grid with a red dot representing the player's location in the centre. Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by white pixels. 
+The 2d minimap will be displayed in the bottom right hand corner of the screen, using XOR writes. 
 
-The minimap will update in real time as the player moves around the 3d space. Treasure is static but Sharks and Rays will move around the minimap.
+The minimap will be 40x40 pixels in size so that the world space is fully visible. It will be a white grid divided into 5x5 squares of 8px width and height.
 
-The minimap will be 32x32 pixels in size so that the world space is fully visible.
+Each grid square will represent and 13x13 area in the world space. Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels in the centre of their grid square.
+
+The minimap will only show items at the current depth (e.g. Depth 2 will never show treasures as they don't occur at that depth)
+
+ A yellow pixel in the centre of a square represents the player's location to the nearest 8x8 grid.
+
+ If the player occupies the same grid element as a predator, the grid attribute will be red flash.
+
+The minimap will update every second as the player and predators move. Treasure is static but Sharks and Rays will move around the minimap.
 
 The minimap overlaps the play area, so it should be drawn last to avoid flicker.
 

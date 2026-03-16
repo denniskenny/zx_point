@@ -15,7 +15,12 @@ For multi-frame sprites, frames are stacked vertically in the pixel data.
 The frame height is inferred from: total_pixel_rows / num_frames.
 
 Usage:
-  zxp2header.py <input.zxp> <output.h> [--frames N] [--name NAME]
+  zxp2header.py <input.zxp> <output.h> [--frames N] [--name NAME] [--sp1]
+
+The --sp1 flag outputs sprite data in SP1's column-major (mask, graphic)
+pair format instead of row-major. Each column contains (height_chars + 1)
+character rows (the extra row is blank for vertical rotation), with 8
+(mask, graphic) pairs per character row.
 """
 
 import argparse
@@ -83,7 +88,6 @@ def parse_zxp(path):
 
 def pixels_to_bytes(pixel_lines, width):
     """Convert ASCII '0'/'1' pixel rows to packed bytes (MSB = leftmost)."""
-    bytes_per_row = (width + 7) // 8
     result = []
     for row in pixel_lines:
         row_bytes = []
@@ -95,6 +99,46 @@ def pixels_to_bytes(pixel_lines, width):
                     byte |= 0x80 >> bit
             row_bytes.append(byte)
         result.extend(row_bytes)
+    return result
+
+
+def pixels_to_sp1(pixel_lines, width, height):
+    """Convert pixel rows to SP1 column-major (mask, graphic) pairs.
+
+    SP1 format per column (8 pixels wide):
+      For each character row (height_chars + 1 for rotation buffer):
+        For each pixel line within char row (8 lines):
+          mask_byte, graphic_byte
+
+    Mask: 0xFF = transparent, 0x00 = opaque.
+    Mask is generated as inverse of graphic (1-pixel border expansion).
+    """
+    height_chars = (height + 7) // 8
+    width_cols = (width + 7) // 8
+    result = []
+
+    for col in range(width_cols):
+        col_x = col * 8
+        for char_row in range(height_chars + 1):
+            for line in range(8):
+                pixel_y = char_row * 8 + line
+                if char_row >= height_chars or pixel_y >= height:
+                    # Extra rotation row or beyond sprite height
+                    result.append(0xFF)  # mask: transparent
+                    result.append(0x00)  # graphic: empty
+                else:
+                    # Build graphic byte from pixel data
+                    gfx = 0
+                    for bit in range(8):
+                        px = col_x + bit
+                        if px < width and pixel_lines[pixel_y][px] == "1":
+                            gfx |= 0x80 >> bit
+                    # Mask: inverse of graphic (simple; 1px border
+                    # expansion is done at runtime by sprites_gen_mask)
+                    mask = gfx ^ 0xFF
+                    result.append(mask)
+                    result.append(gfx)
+
     return result
 
 
@@ -128,6 +172,11 @@ def main():
         default=None,
         help="Base name for C identifiers (default: derived from filename)",
     )
+    parser.add_argument(
+        "--sp1",
+        action="store_true",
+        help="Output in SP1 column-major (mask, graphic) format",
+    )
     args = parser.parse_args()
 
     width, pixel_lines, attr_bytes = parse_zxp(args.input)
@@ -152,6 +201,9 @@ def main():
     # Build header guard
     guard = f"_{base.upper()}_H_"
 
+    height_chars = (frame_height + 7) // 8
+    width_cols = (width + 7) // 8
+
     header_lines = [
         f"#ifndef {guard}",
         f"#define {guard}",
@@ -165,19 +217,36 @@ def main():
         f"#define {base.upper()}_WIDTH  {width}",
         f"#define {base.upper()}_HEIGHT {frame_height}",
         f"#define {base.upper()}_FRAMES {args.frames}",
-        "",
     ]
 
+    if args.sp1:
+        header_lines.append(
+            f"#define {base.upper()}_SP1_COLS  {width_cols}"
+        )
+        header_lines.append(
+            f"#define {base.upper()}_SP1_ROWS  {height_chars}"
+        )
+        # Bytes per column: (height_chars + 1) * 8 * 2
+        col_bytes = (height_chars + 1) * 8 * 2
+        header_lines.append(
+            f"#define {base.upper()}_SP1_COL_BYTES  {col_bytes}"
+        )
+
+    header_lines.append("")
+
     # Generate per-frame arrays
-    bytes_per_row = (width + 7) // 8
     for frame in range(args.frames):
         start_row = frame * frame_height
         end_row = start_row + frame_height
         frame_pixels = pixel_lines[start_row:end_row]
-        data = pixels_to_bytes(frame_pixels, width)
+
+        if args.sp1:
+            data = pixels_to_sp1(frame_pixels, width, frame_height)
+        else:
+            data = pixels_to_bytes(frame_pixels, width)
 
         if args.frames == 1:
-            arr_name = f"{base}_bitmap"
+            arr_name = f"{base}_bitmap" if not args.sp1 else f"{base}_sp1"
         else:
             arr_name = f"{base}_f{frame + 1}"
 
@@ -195,10 +264,11 @@ def main():
     with open(args.output, "w") as f:
         f.write("\n".join(header_lines))
 
+    fmt = "SP1 column-major" if args.sp1 else "row-major"
     print(
         f"Generated {args.output}: {width}x{frame_height}, "
         f"{args.frames} frame(s), "
-        f"{len(attr_bytes)} attribute byte(s)"
+        f"{len(attr_bytes)} attribute byte(s) [{fmt}]"
     )
 
 
