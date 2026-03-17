@@ -92,7 +92,7 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
   Draw the health bar as a red horizontal gauge next to the oxygen bar. 5 positions. Decreased by 1 on ray/shark contact. Replenished fully by first aid kit flotsam. When health reaches 0, trigger level failure.
 
 - [ ] **4.6 Minimap**
-  Create `src/minimap.c` / `include/minimap.h`. A 32x32 pixel XOR-drawn map in the bottom-right corner. White grid lines. Red dot for player (centre). White dots for treasure, rays, and sharks (not GOO). Updates every frame as entities move. Drawn last to overlay the play area. Maps the full 64x64 horizontal grid (depth is not shown).
+  Create `src/minimap.c` / `include/minimap.h`. A 32x32 pixel map in the bottom-right corner. Grid background is blitted from `assets/minimap_grid.zxp` (with colour attributes). Yellow 2x2 dot for the player (centred in grid cell). Red 1x1 dots for treasure, rays, and sharks (not GOO) — dots use XOR writes. Items are depth-filtered to the player's current depth. Red+flash attribute when player and predator share a grid cell. Updates once per second (50 frames). Drawn last to overlay the play area. Maps the full 64x64 horizontal grid to a 4x4 cell layout.
 
 ---
 

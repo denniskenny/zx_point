@@ -61,9 +61,9 @@ static void erase_star(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
 {
     unplot(buf, px, py);
     if (pclose) {
-        if (px < 255) unplot(buf, px + 1, py);
-        if (py < 191) unplot(buf, px, py + 1);
-        if (px < 255 && py < 191) unplot(buf, px + 1, py + 1);
+        unplot(buf, px + 1, py);
+        unplot(buf, px, py + 1);
+        unplot(buf, px + 1, py + 1);
     }
 }
 
@@ -163,19 +163,16 @@ void update_and_draw_stars(int8_t vx, int8_t vy, int8_t vz)
         sx = (stars[i].x * FOCAL) / stars[i].z + 128;
         sy = (stars[i].y * FOCAL) / stars[i].z + 96;
 
-        /* Clip to visible screen area and draw */
-        if (sx >= 0 && sx < 256 && sy >= 0 && sy < 192) {
+        /* Clip to viewport (bottom 32 rows reserved for minimap/HUD) */
+        if (sx >= 0 && sx < VIEW_W && sy >= 0 && sy < VIEW_H) {
             plot(SCREEN, (uint8_t)sx, (uint8_t)sy);
 
             /* Close stars (z < 85) get a 2x2 dot for depth cue */
             stars[i].pclose = (stars[i].z < (Z_MAX / 3)) ? 1 : 0;
             if (stars[i].pclose) {
-                if (sx < 255)
-                    plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)sy);
-                if (sy < 191)
-                    plot(SCREEN, (uint8_t)sx, (uint8_t)(sy + 1));
-                if (sx < 255 && sy < 191)
-                    plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)(sy + 1));
+                plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)sy);
+                plot(SCREEN, (uint8_t)sx, (uint8_t)(sy + 1));
+                plot(SCREEN, (uint8_t)(sx + 1), (uint8_t)(sy + 1));
             }
             stars[i].psx = (uint8_t)sx;
             stars[i].psy = (uint8_t)sy;

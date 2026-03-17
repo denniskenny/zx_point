@@ -58,10 +58,15 @@ include/map_item.h: assets/map.zxp tools/zxp2header.py
 include/log_item.h: assets/log.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 2 --name log_item
 
+# Minimap grid (32x32, blit source for the minimap background)
+include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
+	$(ZXP2HEADER) $< $@ --frames 2 --name minimap_grid
+
 GENERATED_HEADERS = include/diver.h \
     include/ray.h include/shark.h \
     include/statue.h include/tablet.h include/altar.h \
-    include/firstaid.h include/oxygen_tank.h include/map_item.h include/log_item.h
+    include/firstaid.h include/oxygen_tank.h include/map_item.h include/log_item.h \
+    include/minimap_grid.h
 
 # --- Source files (multi-file build) ---
 SRCS = src/main.c src/state.c src/starfield.c src/gfx.c src/input.c src/sound.c \

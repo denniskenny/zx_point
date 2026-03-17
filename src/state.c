@@ -77,6 +77,9 @@ static game_state_t state_game_init(void)
     /* Initialise HUD pixel patterns */
     hud_init();
 
+    /* Reset minimap update timer */
+    minimap_init();
+
     return STATE_GAME;
 }
 

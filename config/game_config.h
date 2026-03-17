@@ -88,6 +88,13 @@
 #define MINIMAP_COL  28
 #define MINIMAP_SIZE 32   /* pixels (4x4 chars) */
 
+/* --- Starfield viewport (pixels) --- */
+/* The play area is the top 160 rows (rows 0-19 in char coords).        */
+/* The bottom 32 rows (char rows 20-23) are reserved for the minimap    */
+/* and HUD — the starfield engine never renders below VIEW_H.           */
+#define VIEW_W       256
+#define VIEW_H       (MINIMAP_ROW * 8)   /* 160 */
+
 /* --- Predator types --- */
 #define PRED_RAY    0
 #define PRED_SHARK  1

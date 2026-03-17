@@ -205,7 +205,7 @@ The player will be rendered as a 2d 16x16 pixel sprite in the centre of the scre
 
 When the player moves, the player sprite stays in the same position and the starfield and other sprites move to create the illusion of movement.
 
-The 3d space will occupy all of the screen, except for the last character row which is occupied by the health and oxygen gauges.
+The 3d space occupies the top 160 pixel rows of the screen (char rows 0-19). The bottom 32 rows (char rows 20-23, pixels y 160-191) are reserved for the HUD gauges and minimap. The starfield engine viewport height is capped at 160 so no per-pixel bounds testing is needed for the HUD/minimap region.
 
 ### Game Space
 The world space will be a 3d grid of 64x3x64 (Width x Depth x Height) cubes. The player will always start in the top centre cube.
@@ -236,9 +236,9 @@ The sea floor should never ascend above the player's position (e.g. the centre o
 ## Minimap
 The 2d minimap will be displayed in the bottom right hand corner of the screen, using XOR writes. 
 
-The minimap will be 40x40 pixels in size so that the world space is fully visible. It will be a white grid divided into 5x5 squares of 8px width and height.
+The minimap will be 32x32 pixels in size so that the world space is fully visible. It will be a white grid divided into 4x4 squares of 8px width and height.
 
-Each grid square will represent and 13x13 area in the world space. Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels in the centre of their grid square.
+Each grid square will represent and 16x16 area in the world space. Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels in the centre of their grid square.
 
 The minimap will only show items at the current depth (e.g. Depth 2 will never show treasures as they don't occur at that depth)
 
@@ -248,7 +248,9 @@ The minimap will only show items at the current depth (e.g. Depth 2 will never s
 
 The minimap will update every second as the player and predators move. Treasure is static but Sharks and Rays will move around the minimap.
 
-The minimap overlaps the play area, so it should be drawn last to avoid flicker.
+The minimap overlaps the play area, so it should be drawn last to avoid flicker. Dots should be added and removed with XOR writes.
+
+The grid image for the minimap (with colour attributes) is stored at assets/minimap_grid.zxp
 
 ## Sprites
 * Sprites should be stored in the asset directory as a ZX-Paintbrush .zxp bitmap and converted to a C header file with static const unsigned char at build time. 
