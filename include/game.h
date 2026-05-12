@@ -14,6 +14,9 @@ typedef struct {
     uint8_t health;
     uint8_t oxygen;
     uint8_t invuln_timer;          /* frames of invulnerability remaining */
+    uint8_t at_bound_x;            /* 1 if clamped at X boundary */
+    uint8_t at_bound_z;            /* 1 if clamped at Z boundary */
+    uint8_t at_bound_y;            /* 1 if clamped at depth boundary */
 } player_t;
 
 typedef struct {

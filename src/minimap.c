@@ -1,7 +1,7 @@
 /*
  * minimap.c -- 32x32 pixel minimap in bottom-right corner
  *
- * Shows the full 64x64 horizontal grid at the current depth.
+ * Shows the full 32x32 horizontal grid at the current depth.
  * Player = yellow 2x2 dot (centred in grid cell).
  * Treasures & predators = red 1x1 dots (centred in grid cell).
  * Drawn last each frame to overlay the play area using XOR writes for dots.
@@ -19,15 +19,21 @@
 #include "../include/treasure.h"
 #include "../include/predators.h"
 #include "../include/minimap_grid.h"
+#include "../include/depth.h"
 
 /* Pixel origin of the minimap */
 #define MM_PX  ((uint8_t)(MINIMAP_COL * 8))   /* 224 */
 #define MM_PY  ((uint8_t)(MINIMAP_ROW * 8))   /* 160 */
 
-/* Update throttle: 50 frames = 1 second at 50fps */
-#define MM_UPDATE_INTERVAL  50
+/* Previous player grid position — used to detect cell crossings */
 
-static uint8_t mm_timer;
+/* Depth bar: 1 char column to the left of the minimap */
+#define DEPTH_COL  (MINIMAP_COL - 1)  /* 27 */
+#define DEPTH_ROW  MINIMAP_ROW        /* 20 */
+#define DEPTH_BAR_H  MINIMAP_SIZE     /* 32 pixels tall */
+#define DEPTH_BAR_MASK  0xF0          /* 4px wide, left-aligned in byte */
+
+static uint8_t mm_prev_gx, mm_prev_gz, mm_prev_gy;
 
 /* XOR a single pixel onto the screen */
 static void xor_plot(uint8_t x, uint8_t y)
@@ -36,11 +42,11 @@ static void xor_plot(uint8_t x, uint8_t y)
     SCREEN[scr_off(x, y)] ^= (0x80 >> (x & 7));
 }
 
-/* Map a grid coordinate (0..63) to minimap pixel offset.
- * 4 cells of 8px each; returns centre of the cell (offset 4). */
+/* Map a grid coordinate (0..31) to minimap pixel offset.
+ * Axes are mirrored so O=left, P=right, W=up, S=down on the map. */
 static uint8_t grid_to_mm(uint8_t g)
 {
-    return (uint8_t)(((g >> 4) << 3) + 4);
+    return 31 - g;
 }
 
 /* Blit the minimap grid image from the asset header.
@@ -65,17 +71,17 @@ static void draw_grid(void)
 static uint8_t player_predator_overlap(void)
 {
     uint8_t i;
-    uint8_t pcx = player.gx >> 4;
-    uint8_t pcz = player.gz >> 4;
+    uint8_t pcx = player.gx >> 3;
+    uint8_t pcz = player.gz >> 3;
 
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
-        if (predators[i].type == PRED_GOO) continue;
-        /* Depth filter: rays at depth 0, sharks at depth 1 */
+        /* Depth filter: rays at depth 0, sharks at depth 1, GOOs at depth 2 */
         if (predators[i].type == PRED_RAY   && player.gy != 0) continue;
         if (predators[i].type == PRED_SHARK && player.gy != 1) continue;
-        if ((predators[i].gx >> 4) == pcx &&
-            (predators[i].gz >> 4) == pcz)
+        if (predators[i].type == PRED_GOO   && player.gy != 2) continue;
+        if ((predators[i].gx >> 3) == pcx &&
+            (predators[i].gz >> 3) == pcz)
             return 1;
     }
     return 0;
@@ -83,7 +89,9 @@ static uint8_t player_predator_overlap(void)
 
 void minimap_init(void)
 {
-    mm_timer = 0;
+    mm_prev_gx = 0xFF;  /* force first draw */
+    mm_prev_gz = 0xFF;
+    mm_prev_gy = 0xFF;
 }
 
 void minimap_draw(void)
@@ -93,12 +101,13 @@ void minimap_draw(void)
     uint8_t cell_row, cell_col;
     uint8_t y;
 
-    /* --- Throttle: only update once per second --- */
-    if (mm_timer > 0) {
-        mm_timer--;
+    /* --- Only update when player crosses a cell boundary --- */
+    if (player.gx == mm_prev_gx && player.gz == mm_prev_gz &&
+        player.gy == mm_prev_gy)
         return;
-    }
-    mm_timer = MM_UPDATE_INTERVAL;
+    mm_prev_gx = player.gx;
+    mm_prev_gz = player.gz;
+    mm_prev_gy = player.gy;
 
     /* --- Draw the 4x4 grid (direct writes, clears area first) --- */
     draw_grid();
@@ -118,26 +127,28 @@ void minimap_draw(void)
         px = MM_PX + grid_to_mm(treasures[i].gx);
         py = MM_PY + grid_to_mm(treasures[i].gz);
         xor_plot(px, py);
-        /* Set cell attribute to red ink */
-        cell_col = MINIMAP_COL + (treasures[i].gx >> 4);
-        cell_row = MINIMAP_ROW + (treasures[i].gz >> 4);
+        /* Set cell attribute to red ink (mirrored) */
+        cell_col = MINIMAP_COL + 3 - (treasures[i].gx >> 3);
+        cell_row = MINIMAP_ROW + 3 - (treasures[i].gz >> 3);
         ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
     }
 
-    /* --- Draw predator dots (XOR, red, 1x1; skip GOOs) --- */
+    /* --- Draw predator dots (XOR, 1x1, centred in cell) --- */
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
-        if (predators[i].type == PRED_GOO) continue;
-        /* Depth filter: rays at depth 0, sharks at depth 1 */
+        /* Depth filter: rays at depth 0, sharks at depth 1, GOOs at depth 2 */
         if (predators[i].type == PRED_RAY   && player.gy != 0) continue;
         if (predators[i].type == PRED_SHARK && player.gy != 1) continue;
+        if (predators[i].type == PRED_GOO   && player.gy != 2) continue;
         px = MM_PX + grid_to_mm(predators[i].gx);
         py = MM_PY + grid_to_mm(predators[i].gz);
         xor_plot(px, py);
-        /* Set cell attribute to red ink */
-        cell_col = MINIMAP_COL + (predators[i].gx >> 4);
-        cell_row = MINIMAP_ROW + (predators[i].gz >> 4);
-        ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
+        cell_col = MINIMAP_COL + 3 - (predators[i].gx >> 3);
+        cell_row = MINIMAP_ROW + 3 - (predators[i].gz >> 3);
+        if (predators[i].type == PRED_GOO)
+            ATTR[cell_row * 32 + cell_col] = 0x82;  /* red ink + FLASH */
+        else
+            ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
     }
 
     /* --- Draw player dot (XOR, yellow, 2x2 pixels, centred) --- */
@@ -149,11 +160,48 @@ void minimap_draw(void)
     xor_plot(px + 1, py + 1);
 
     /* --- Set player cell attribute: yellow, or red+flash if overlap --- */
-    cell_col = MINIMAP_COL + (player.gx >> 4);
-    cell_row = MINIMAP_ROW + (player.gz >> 4);
+    cell_col = MINIMAP_COL + 3 - (player.gx >> 3);
+    cell_row = MINIMAP_ROW + 3 - (player.gz >> 3);
     if (player_predator_overlap()) {
         ATTR[cell_row * 32 + cell_col] = 0x82;  /* flash + red ink */
     } else {
         ATTR[cell_row * 32 + cell_col] = 0x06;  /* yellow ink, black paper */
     }
+
+}
+
+void depth_indicator_draw(void)
+{
+    uint16_t depth_val;
+    uint16_t max_depth;
+    uint8_t bar_h, y;
+    uint8_t dpx, dpy;
+    uint8_t paper_attr;
+
+    /* depth_val: 0 at surface, increases as player descends */
+    depth_val = player.sub_z + (uint16_t)CUBE_SUB_Z * player.gy;
+    max_depth = (uint16_t)CUBE_SUB_Z * GRID_D;
+    paper_attr = depth_get_paper() | 0x07;  /* white ink on depth paper */
+
+    /* Bar height: full (32) at surface, 1 at sea floor */
+    if (depth_val >= max_depth)
+        bar_h = 1;
+    else
+        bar_h = DEPTH_BAR_H - (uint8_t)((uint32_t)depth_val * (DEPTH_BAR_H - 1) / max_depth);
+
+    dpx = DEPTH_COL * 8;
+    dpy = DEPTH_ROW * 8;
+
+    /* Draw bar: empty rows on top, filled rows on bottom */
+    for (y = 0; y < DEPTH_BAR_H; y++) {
+        uint16_t off = scr_off(dpx, dpy + y);
+        if (y < DEPTH_BAR_H - bar_h)
+            SCREEN[off] = 0x00;
+        else
+            SCREEN[off] = DEPTH_BAR_MASK;
+    }
+
+    /* Set attributes for the 4 char rows */
+    for (y = 0; y < 4; y++)
+        ATTR[(DEPTH_ROW + y) * 32 + DEPTH_COL] = paper_attr;
 }

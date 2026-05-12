@@ -13,6 +13,7 @@
 #include "../include/hw.h"
 
 uint8_t is_128k = 0;
+uint8_t has_kempston = 0;
 
 void hw_detect(void)
 {
@@ -78,5 +79,24 @@ void hw_detect(void)
         ld  (_is_128k), a
 
     _hw_done:
+
+        ;; --- Kempston joystick detection ---
+        ;; Read port 0x1F several times. A real Kempston returns 0
+        ;; when idle; a floating bus returns varying non-zero values.
+        ld  b, 8            ; sample 8 times
+        ld  c, 0x1F
+    _kemp_loop:
+        in  a, (c)
+        or  a
+        jr  z, _kemp_found  ; read 0 → Kempston present
+        djnz _kemp_loop
+        ;; No zero seen — no Kempston
+        xor a
+        ld  (_has_kempston), a
+        jr  _kemp_done
+    _kemp_found:
+        ld  a, 1
+        ld  (_has_kempston), a
+    _kemp_done:
     __endasm;
 }

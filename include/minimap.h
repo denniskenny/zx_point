@@ -9,9 +9,13 @@
 void minimap_init(void);
 
 /* Draw the minimap: 4x4 grid, player dot (yellow), item dots (red).
- * Throttled to update once per second (50 frames).
+ * Updates on cell boundary crossings.
  * Uses XOR writes for dots over the grid.
  * Call after all other rendering (starfield, sprites, HUD). */
 void minimap_draw(void);
+
+/* Draw the 4-digit depth indicator to the left of the minimap.
+ * Call every frame for smooth depth updates. */
+void depth_indicator_draw(void);
 
 #endif /* _MINIMAP_H_ */

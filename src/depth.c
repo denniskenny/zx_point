@@ -1,10 +1,10 @@
 /*
  * depth.c — Depth layer attribute system
  *
- * Three depth palettes with animated transitions (~150 frames = 3s).
+ * Three depth palettes with animated transitions (~50 frames = 1s).
  * Attribute byte format: F_B_PPP_III (flash, bright, paper, ink).
  *
- * Depth 1: Paper=cyan(5), Ink=white(7), Bright=1  → 0x6F  border=5
+ * Depth 1: Paper=cyan(5), Ink=white(7), Bright=0  → 0x2F  border=5
  * Depth 2: Paper=blue(1), Ink=green(4), Bright=0  → 0x0C  border=1
  * Depth 3: Paper=black(0), Ink=white(7), Bright=0 → 0x07  border=0
  */
@@ -14,17 +14,17 @@
 #include "../config/game_config.h"
 #include "../include/depth.h"
 
-/* --- Transition duration (3 seconds at 50fps) --- */
-#define TRANSITION_FRAMES 150
+/* --- Transition duration (~0.15 second at 50fps) --- */
+#define TRANSITION_FRAMES 8
 
 /* --- Resting attributes per depth (1-indexed, [0] unused) --- */
-static const uint8_t depth_attr[4]   = { 0, 0x6F, 0x0C, 0x07 };
+static const uint8_t depth_attr[4]   = { 0, 0x2F, 0x0C, 0x07 };
 static const uint8_t depth_border[4] = { 0, 5,    1,    0    };
 
 uint8_t current_depth = 1;
 
-/* --- Border helper --- */
-static uint8_t border_val;
+/* --- Border helper (non-static: shared with sound.c for beeper) --- */
+uint8_t border_val;
 
 static void set_border(uint8_t c)
 {
@@ -40,7 +40,7 @@ static void set_border(uint8_t c)
 /* ------------------------------------------------------------------ */
 
 /* Depth 1 → 2: 7-step colour cycle */
-static const uint8_t t12_attr[]   = { 0x6F, 0x27, 0x66, 0x1E, 0x5D, 0x15, 0x0C };
+static const uint8_t t12_attr[]   = { 0x2F, 0x27, 0x66, 0x1E, 0x5D, 0x15, 0x0C };
 static const uint8_t t12_border[] = {    5,    4,    4,    3,    3,    2,    1 };
 #define T12_STEPS 7
 
@@ -55,7 +55,7 @@ static const uint8_t t32_border[] = {    0,    1,    1 };
 #define T32_STEPS 3
 
 /* Depth 2 → 1: 7-step (reverse of 1→2) */
-static const uint8_t t21_attr[]   = { 0x0C, 0x15, 0x5D, 0x1E, 0x66, 0x27, 0x6F };
+static const uint8_t t21_attr[]   = { 0x0C, 0x15, 0x5D, 0x1E, 0x66, 0x27, 0x2F };
 static const uint8_t t21_border[] = {    1,    2,    3,    3,    4,    4,    5 };
 #define T21_STEPS 7
 
@@ -68,6 +68,14 @@ static uint8_t trans_frames_per;    /* frames between step changes */
 static uint8_t trans_frame_ctr;     /* countdown to next step */
 static uint8_t trans_active;
 static uint8_t trans_target;        /* destination depth layer */
+
+/* ------------------------------------------------------------------ */
+/* Re-apply the current border (call after beeper corrupts port 254)   */
+/* ------------------------------------------------------------------ */
+void depth_restore_border(void)
+{
+    set_border(border_val);
+}
 
 /* ------------------------------------------------------------------ */
 /* Immediate depth set                                                 */
@@ -87,6 +95,14 @@ uint8_t depth_get_attr(uint8_t layer)
 uint8_t depth_get_border(uint8_t layer)
 {
     return depth_border[layer];
+}
+
+uint8_t depth_get_paper(void)
+{
+    /* Read a cell that is always set by depth_set / transition tick.
+     * Return just the paper+bright bits (mask 0x78) so callers can
+     * OR in their own ink colour. */
+    return ATTR[0] & 0x78;
 }
 
 /* ------------------------------------------------------------------ */
@@ -115,6 +131,7 @@ void depth_start_transition(uint8_t from, uint8_t to)
     trans_target = to;
     trans_step = 0;
     trans_frames_per = TRANSITION_FRAMES / (trans_steps - 1);
+    if (trans_frames_per < 1) trans_frames_per = 1;
     trans_frame_ctr = trans_frames_per;
     trans_active = 1;
 

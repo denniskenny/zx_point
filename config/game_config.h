@@ -14,11 +14,15 @@
 #define ATTR_SZ  768
 
 /* --- Keyboard half-row port addresses --- */
+/* Q=Up  W=Forward(into screen) */
 #define KEY_QWERT  0xFBFE   /* Q=bit0  W=bit1 */
+/* A=Down  S=Backward(out of screen) */
 #define KEY_ASDFG  0xFDFE   /* A=bit0  S=bit1 */
+/* P=Right  O=Left */
 #define KEY_POIUY  0xDFFE   /* P=bit0  O=bit1 */
 
 /* --- Kempston joystick --- */
+/* R=Right  L=Left  D=Down  U=Up  F1=Forward  F2=Backward */
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 F1=4 F2=5 */
 
 /* --- Starfield parameters --- */
@@ -38,9 +42,9 @@
 #define PING_INTERVAL  12   /* frames between pings */
 
 /* --- World grid --- */
-#define GRID_W  64
+#define GRID_W  32
 #define GRID_D  3
-#define GRID_H  64
+#define GRID_H  32
 
 /* --- Depth-level star counts --- */
 #define STARS_DEPTH1  100
@@ -58,9 +62,14 @@
 #define OXYGEN_MAX  100
 
 /* --- Sub-cube traversal --- */
-/* At SPEED=3, 50fps: 10s horizontal = 1500, 20s vertical = 3000 */
-#define CUBE_SUB_XY     1500
-#define CUBE_SUB_Z      3000
+/* At SPEED=3, 50fps: sub-steps per grid cell crossing             */
+/*                     1 depth level in ~10s vertical = 500        */
+#define CUBE_SUB_XY     16
+#define CUBE_SUB_Z      500
+
+/* --- Player start position (centre of grid) --- */
+#define START_GX  16
+#define START_GZ  16
 
 /* --- Treasure types --- */
 #define TREASURE_STATUE     0

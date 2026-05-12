@@ -13,11 +13,11 @@
 #include "../config/game_config.h"
 #include "../include/hud.h"
 #include "../include/gfx.h"
+#include "../include/depth.h"
 
-/* Attribute values */
-#define ATTR_OXY_FULL  0x45   /* bright, paper=black, ink=cyan */
-#define ATTR_HP_FULL   0x42   /* bright, paper=black, ink=red */
-#define ATTR_BAR_EMPTY 0x00   /* paper=black, ink=black */
+/* Ink colours for gauges (OR'd with depth paper) */
+#define OXY_INK  0x07   /* white ink */
+#define HP_INK   0x02   /* red ink */
 
 /* Bar pixel pattern: 1px border (paper), 6px fill (ink) */
 static const uint8_t bar_pattern[8] = {
@@ -55,19 +55,22 @@ void hud_draw(uint8_t oxygen, uint8_t health)
 {
     uint8_t c;
     uint8_t oxy_filled;
+    uint8_t paper;
     uint8_t *row_attr = ATTR + HUD_ROW * 32;
+
+    paper = depth_get_paper();
 
     /* Oxygen bar: map 0-OXYGEN_MAX to 0-OXY_COL_COUNT filled cells */
     oxy_filled = (uint8_t)(((uint16_t)oxygen * OXY_COL_COUNT) / OXYGEN_MAX);
 
     for (c = 0; c < OXY_COL_COUNT; c++) {
         row_attr[OXY_COL_START + c] =
-            (c < oxy_filled) ? ATTR_OXY_FULL : ATTR_BAR_EMPTY;
+            (c < oxy_filled) ? (paper | OXY_INK) : paper;
     }
 
     /* Health bar: 1 cell per health point */
     for (c = 0; c < HP_COL_COUNT; c++) {
         row_attr[HP_COL_START + c] =
-            (c < health) ? ATTR_HP_FULL : ATTR_BAR_EMPTY;
+            (c < health) ? (paper | HP_INK) : paper;
     }
 }

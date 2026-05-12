@@ -9,19 +9,31 @@ Each succesful trip leads to a further trip with more treasure items to collect 
 
 ## Heads Up Display
 
-The time limit is represented by a blue percentage bar shaped like a horizontal oxygen tank in the bottom left corner of the screen. The time limit should be configurable, initially using a value of 3 minutes.
+The time limit is represented by a white percentage bar shaped like a horizontal oxygen tank in the bottom left corner of the screen. The time limit should be configurable, initially using a value of 3 minutes.
 
 Health is indicated by a red bar shaped like a horizontal gauge next to the time limit bar. It has five positions.
 
+Both bars use the current depth paper colour as their background (via `depth_get_paper()`), ensuring they blend with the starfield at all depths.
+
 The blue and red bars should leave enough room for the 32x32 minimap in the bottom right corner of the screen.
 
+## Controls
 
+The player controls the diver with either keys or joystick, moving the player left, right, forward, and backward. Two additional buttons allow the player to move into and out of the screen, allowing for full navigation of the 3d space.
 
+The controls are
+
+Q / Joystick Up     - Move Up
+A / Joystick Down   - Move Down
+O / Joystick Left   - Move Left
+P / Joystick Right  - Move Right
+W / Fire Button 1   - Move Forward (into screen)
+S / Fire Button 2   - Move Backward (out of screen)
+
+Movement has inertia: holding a key accelerates the diver up to maximum speed; releasing the key causes the diver to decelerate gradually to a stop (friction applied every 8th frame). The starfield scrolls to match the diver's velocity, creating the illusion of movement. When the diver reaches the boundary of the map, the starfield stops scrolling on that axis.
 
 ## Gameplay
 The game begins with a short animation that shows the player descending from their ship and. their oxygen gauge filling up.
-
-The player controls the diver with either keys or joystick, moving the player left, right, forward, and backward. Two additional buttons allow the player to move into and out of the screen, allowing for full navigation of the 3d space.
 
 The mini-map is a grid in the lower right hand corner of the screen. It shows the player's location in relation to the ship and the treasure. The player must use the minimap to navigate to the treasure.
 
@@ -79,7 +91,7 @@ Sharks take 1 part of the health gauge on contact but will proceed on their path
 
 * Great Old Ones : 20x20 character bitmap of a great old one
 
-Great Old Ones do not appear on the minimap, have a sonar sound and move in a random direction. They are very slow but cause instant death if the player collides with them.
+Great Old Ones appear on the minimap at depth 3 as a red dot with the FLASH attribute set (hardware flash, not programmatic). They have a sonar sound and move in a random direction. They are very slow but cause instant death if the player collides with them.
 
 Great Old Ones are rendered as a large angler fish face approaching the screen. The graphic will be 20x20 characters in size and have three frames; approaching, open maw and closed swallow. If the player enters a frame with an old one, the game will play this animation and end (see Level Failure).
 
@@ -208,9 +220,9 @@ When the player moves, the player sprite stays in the same position and the star
 The 3d space occupies the top 160 pixel rows of the screen (char rows 0-19). The bottom 32 rows (char rows 20-23, pixels y 160-191) are reserved for the HUD gauges and minimap. The starfield engine viewport height is capped at 160 so no per-pixel bounds testing is needed for the HUD/minimap region.
 
 ### Game Space
-The world space will be a 3d grid of 64x3x64 (Width x Depth x Height) cubes. The player will always start in the top centre cube.
+The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre cube.
 
-A cube should take about 10 seconds to traverse and 20 seconds to descend. Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
+Each minimap cell (8 cubes) should take about 5 seconds to traverse horizontally. It should take approximately 10 seconds to descend one depth level (CUBE_SUB_Z=500). The player always starts at the centre of the grid in the top layer (grid position 16,16). Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
 
 ### The Sea Line
 When the player is in the top cube, the Sea Line is represented by a sinewave line of pixels. The sinewave is animated to create an undulating effect.
@@ -234,21 +246,23 @@ The sea floor should never ascend above the player's position (e.g. the centre o
 * The Great Old One graphic should only be drawn to the scanline where the sea floor appears.
 
 ## Minimap
-The 2d minimap will be displayed in the bottom right hand corner of the screen, using XOR writes. 
+The 2d minimap is an overhead (top-down) view displayed in the bottom right hand corner of the screen, using XOR writes. The X axis (left/right) maps horizontally and the Z axis (forward/backward) maps vertically; the depth axis (Y) is used only for filtering.
 
-The minimap will be 32x32 pixels in size so that the world space is fully visible. It will be a white grid divided into 4x4 squares of 8px width and height.
+The minimap will be 32x32 pixels in size so that the 32x32 horizontal grid is fully visible, with each grid position mapping 1:1 to a minimap pixel. It will be a white grid divided into 4x4 squares of 8px width and height.
 
-Each grid square will represent and 16x16 area in the world space. Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels in the centre of their grid square.
+Each grid square represents an 8x8 cube area in the world space (consistent with the 32x32 grid / 4 cells = 8 cubes per cell). Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels at their grid position.
 
 The minimap will only show items at the current depth (e.g. Depth 2 will never show treasures as they don't occur at that depth)
 
- A yellow pixel in the centre of a square represents the player's location to the nearest 8x8 grid.
+ A yellow pixel represents the player's exact grid position.
 
  If the player occupies the same grid element as a predator, the grid attribute will be red flash.
 
-The minimap will update every second as the player and predators move. Treasure is static but Sharks and Rays will move around the minimap.
+The minimap will update each time the player crosses a cell boundary. Treasure is static but Sharks and Rays will move around the minimap.
 
 The minimap overlaps the play area, so it should be drawn last to avoid flicker. Dots should be added and removed with XOR writes.
+
+A vertical depth bar (4 pixels wide, 32 pixels tall) is displayed in the character column immediately to the left of the minimap (col 27). It shows a filled bar that is full height at the surface and shrinks to 1 pixel at the sea floor. The bar uses white ink on the current depth paper colour and updates every frame for smooth feedback.
 
 The grid image for the minimap (with colour attributes) is stored at assets/minimap_grid.zxp
 
@@ -272,9 +286,11 @@ The grid image for the minimap (with colour attributes) is stored at assets/mini
 
 ### The 3 Layers of Depth
 
-Although the sea is wide, it is only 3 levels deep. However the cubes in the grid are much deeper than they are wide. It should take 20 seconds to descend each level.
+Although the sea is wide, it is only 3 levels deep. However the cubes in the grid are much deeper than they are wide. It should take approximately 10 seconds to descend each level.
 
-When the player descends or ascends a depth level, the paper/ink colors change over the course of 3 seconds using the following cycle;
+A single master paper colour (read via `depth_get_paper()`) is used for the border, starfield attributes, diver sprite, predator sprites, HUD gauges, and depth bar. The beeper sound routine preserves the current border colour when toggling the speaker bit on port 254.
+
+When the player descends or ascends a depth level, the paper/ink colors change rapidly (~0.15 seconds) using the following cycle;
 
 1. Depth 1 -> Depth 2: 
 Ink changes from white bright -> white -> yellow bright -> yellow -> cyan bright -> cyan -> green bright
@@ -298,7 +314,7 @@ At the top, the Sea Line is rendered by a single sinewave line of pixels. The si
 
 Bubbles above this line are culled. This line quickly scrolls off the screen as the player descends.
 
-Paper colour is cyan, Ink colour is white bright. This level has 100 starfield bubbles. Only Rays Exist at this level.
+Paper colour is cyan (non-bright, matching the border), Ink colour is white. This level has 100 starfield bubbles. Only Rays Exist at this level.
 
 If the current cube contains flotsam, the treasure is rendered at a random position on the surface line. It should be updated as the pixel line undulates.
 

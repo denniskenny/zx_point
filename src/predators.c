@@ -14,6 +14,7 @@
 #include "../include/predators.h"
 #include "../include/player.h"
 #include "../include/gfx.h"
+#include "../include/depth.h"
 #include "../include/ray.h"
 #include "../include/shark.h"
 
@@ -203,10 +204,13 @@ void predators_render(void)
     uint8_t draw_x;
     uint8_t attr;
 
-    /* Erase previous frame's sprites */
+    /* Erase previous frame's sprites and restore depth attrs */
     for (i = 0; i < prev_pool_count; i++) {
-        if (prev_drawn[i])
+        if (prev_drawn[i]) {
             erase_sprite_32(SCREEN, prev_draw_x[i], prev_draw_y[i]);
+            set_attr_rect(prev_draw_x[i] >> 3, prev_draw_y[i] >> 3,
+                          4, 4, depth_get_paper() | (ATTR[0] & 0x07));
+        }
     }
 
     pool_idx = 0;
@@ -215,13 +219,14 @@ void predators_render(void)
         p = &predators[i];
         if (!p->visible) continue;
 
-        /* Select frame data (toggle every 8 animation ticks) */
+        /* Select frame data (toggle every 8 animation ticks).
+         * Paper colour matches current depth. */
         if (p->type == PRED_RAY) {
             frame_data = (p->anim_ctr & 0x08) ? ray_f2 : ray_f1;
-            attr = 0x46;  /* bright yellow on black */
+            attr = depth_get_paper() | 0x06;  /* yellow ink on depth paper */
         } else {
             frame_data = (p->anim_ctr & 0x08) ? shark_f2 : shark_f1;
-            attr = 0x42;  /* bright red on black */
+            attr = depth_get_paper() | 0x02;  /* red ink on depth paper */
         }
 
         /* Byte-align X for drawing (8-pixel steps) */

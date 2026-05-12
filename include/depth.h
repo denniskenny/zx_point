@@ -19,6 +19,13 @@ uint8_t depth_get_attr(uint8_t layer);
 /* Get the resting border colour for a depth layer */
 uint8_t depth_get_border(uint8_t layer);
 
+/* Re-apply the current border colour (call after beeper sound) */
+void depth_restore_border(void);
+
+/* Get the current paper bits (0x38 mask) for compositing sprite attrs.
+ * Works during transitions too — returns the last applied paper. */
+uint8_t depth_get_paper(void);
+
 /* Start a non-blocking depth transition (call tick each frame) */
 void depth_start_transition(uint8_t from, uint8_t to);
 

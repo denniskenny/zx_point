@@ -1,26 +1,35 @@
 /*
  * sound.c — Beeper sound effects
  *
- * Extracted from starfield.c lines 177-276.
+ * Port 254 bit layout: bit 4 = speaker, bits 0-2 = border colour.
+ * We read the current border from _border_val (depth.c) so the
+ * beeper never changes the border colour.
  */
 
+#include <stdint.h>
 #include "../include/sound.h"
+
+extern uint8_t border_val;
 
 void beep_ping(void) __naked
 {
     __asm
         ld  c, 254
+        ld  a, (_border_val)
+        ld  d, a            ; d = border with speaker off
+        or  0x10
+        ld  e, a            ; e = border with speaker on
 
         ;; --- main ping: 30 half-cycles -------------------------
         ld  b, 30
     bp_t1:
-        ld  a, 17
+        ld  a, e
         out (c), a
         ld  a, 20
     bp_d1a:
         dec a
         jr  nz, bp_d1a
-        ld  a, 1
+        ld  a, d
         out (c), a
         ld  a, 20
     bp_d1b:
@@ -39,13 +48,13 @@ void beep_ping(void) __naked
         ;; --- echo 1: 18 half-cycles ----------------------------
         ld  b, 18
     bp_t2:
-        ld  a, 17
+        ld  a, e
         out (c), a
         ld  a, 20
     bp_d2a:
         dec a
         jr  nz, bp_d2a
-        ld  a, 1
+        ld  a, d
         out (c), a
         ld  a, 20
     bp_d2b:
@@ -64,13 +73,13 @@ void beep_ping(void) __naked
         ;; --- echo 2: 10 half-cycles ----------------------------
         ld  b, 10
     bp_t3:
-        ld  a, 17
+        ld  a, e
         out (c), a
         ld  a, 20
     bp_d3a:
         dec a
         jr  nz, bp_d3a
-        ld  a, 1
+        ld  a, d
         out (c), a
         ld  a, 20
     bp_d3b:
@@ -89,13 +98,13 @@ void beep_ping(void) __naked
         ;; --- echo 3: 5 half-cycles (faintest) ------------------
         ld  b, 5
     bp_t4:
-        ld  a, 17
+        ld  a, e
         out (c), a
         ld  a, 20
     bp_d4a:
         dec a
         jr  nz, bp_d4a
-        ld  a, 1
+        ld  a, d
         out (c), a
         ld  a, 20
     bp_d4b:

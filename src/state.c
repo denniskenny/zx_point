@@ -14,6 +14,7 @@
 #include "../include/game.h"
 #include "../include/gfx.h"
 #include "../include/input.h"
+#include "../include/hw.h"
 #include "../include/sound.h"
 #include "../include/depth.h"
 #include "../include/vsync.h"
@@ -104,21 +105,28 @@ static game_state_t state_game_tick(void)
     kp = !(k & 0x01);
     ko = !(k & 0x02);
 
-    /* Kempston joystick */
-    joy = read_keys(KEMP_PORT);
-    if (joy & 0x08) kq = 1;
-    if (joy & 0x04) ka = 1;
-    if (joy & 0x02) ko = 1;
-    if (joy & 0x01) kp = 1;
-    if (joy & 0x10) kw = 1;
-    if (joy & 0x20) ks = 1;
+    /* Kempston joystick (only if detected at startup) */
+    if (has_kempston) {
+        joy = read_keys(KEMP_PORT);
+        if (joy & 0x08) kq = 1;
+        if (joy & 0x04) ka = 1;
+        if (joy & 0x02) ko = 1;
+        if (joy & 0x01) kp = 1;
+        if (joy & 0x10) kw = 1;
+        if (joy & 0x20) ks = 1;
+    }
 
     if (kq && vy <  SPEED) vy++;
-    if (ka && vy > -SPEED) vy--;
+    else if (ka && vy > -SPEED) vy--;
+    else if ((frame & 7) == 0) { if (vy > 0) vy--; else if (vy < 0) vy++; }
+
     if (ko && vx <  SPEED) vx++;
-    if (kp && vx > -SPEED) vx--;
+    else if (kp && vx > -SPEED) vx--;
+    else if ((frame & 7) == 0) { if (vx > 0) vx--; else if (vx < 0) vx++; }
+
     if (kw && vz > -SPEED) vz--;
-    if (ks && vz <  SPEED) vz++;
+    else if (ks && vz <  SPEED) vz++;
+    else if ((frame & 7) == 0) { if (vz > 0) vz--; else if (vz < 0) vz++; }
 
     /* --- Player movement & cube traversal --- */
     depth_changed = player_update(vx, vy, vz);
@@ -148,7 +156,7 @@ static game_state_t state_game_tick(void)
         else
             player.health = 0;
         player.invuln_timer = INVULNERABLE_FRAMES;
-        beep_ping();   /* placeholder damage sound */
+        beep_ping();
     }
 
     /* --- Check game over conditions --- */
@@ -164,13 +172,13 @@ static game_state_t state_game_tick(void)
         }
     }
 
-    /* --- Compute player attribute --- */
+    /* --- Compute player attribute (uses live depth paper) --- */
     if (player.invuln_timer > 0 && (player.invuln_timer & 0x02)) {
-        /* Flash: use depth paper colour only (sprite invisible) */
-        spr_attr = depth_get_attr(player.gy + 1);
+        /* Flash: match background so sprite is invisible */
+        spr_attr = depth_get_paper() | (ATTR[0] & 0x07);
     } else {
-        /* Normal: yellow ink (6) on depth paper */
-        spr_attr = (depth_get_attr(player.gy + 1) & 0xF8) | 0x06;
+        /* Normal: yellow ink (6) on current depth paper */
+        spr_attr = depth_get_paper() | 0x06;
     }
 
     /* --- Vsync -- floating bus with HALT fallback --- */
@@ -178,7 +186,10 @@ static game_state_t state_game_tick(void)
 
     /* --- Draw order: erase+draw predators, stars, player on top --- */
     predators_render();
-    update_and_draw_stars(vx, vy, vz);
+    update_and_draw_stars(
+        player.at_bound_x ? 0 : vx,
+        player.at_bound_y ? 0 : vy,
+        player.at_bound_z ? 0 : vz);
     sprites_player_draw((frame >> 3) & 1);
     sprites_player_set_colour(spr_attr);
 
@@ -187,6 +198,7 @@ static game_state_t state_game_tick(void)
 
     /* --- Minimap (drawn last to overlay play area) --- */
     minimap_draw();
+    depth_indicator_draw();
 
     frame++;
 
