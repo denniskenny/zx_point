@@ -2,10 +2,13 @@
 #define _SOUND_H_
 
 /* ================================================================== */
-/* sound.h — Beeper sound effects                                     */
+/* sound.h — Non-blocking beeper sound effects                        */
 /* ================================================================== */
 
-/* Sonar ping with echo (beeper). Preserves border colour. */
-void beep_ping(void) __naked;
+/* Start a sonar ping (tone + 3 echoes, spread across frames). */
+void beep_ping_start(void);
+
+/* Advance the sound state machine. Call once per frame. */
+void beep_tick(void);
 
 #endif /* _SOUND_H_ */

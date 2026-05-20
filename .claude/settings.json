@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make run:*)",
+      "Read(//Users/Kennyd/z88dk/libsrc/**)",
+      "Read(//Users/Kennyd/z88dk/lib/target/zx/classic/**)",
+      "Read(//Users/Kennyd/z88dk/lib/config/**)",
+      "Read(//Users/Kennyd/z88dk/doc/**)",
+      "Read(//Users/Kennyd/z88dk/bin/**)",
+      "Read(//Users/Kennyd/z88dk/examples/**)",
+      "Bash(grep -B 5 -A 5 \"create-app\" ~/z88dk/examples/*/Makefile)",
+      "Read(//Users/Kennyd/z88dk/**)",
+      "Read(//Applications/Fuse.app/Contents/MacOS/**)"
+    ]
+  }
+}

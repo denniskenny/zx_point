@@ -26,7 +26,7 @@
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 F1=4 F2=5 */
 
 /* --- Starfield parameters --- */
-#define NUM_STARS  100
+#define NUM_STARS  50
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -47,9 +47,9 @@
 #define GRID_H  32
 
 /* --- Depth-level star counts --- */
-#define STARS_DEPTH1  100
-#define STARS_DEPTH2  50
-#define STARS_DEPTH3  15
+#define STARS_DEPTH1  50
+#define STARS_DEPTH2  25
+#define STARS_DEPTH3  8
 
 /* --- Distances (in cube units) --- */
 #define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */

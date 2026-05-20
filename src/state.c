@@ -156,7 +156,7 @@ static game_state_t state_game_tick(void)
         else
             player.health = 0;
         player.invuln_timer = INVULNERABLE_FRAMES;
-        beep_ping();
+        beep_ping_start();
     }
 
     /* --- Check game over conditions --- */
@@ -205,8 +205,9 @@ static game_state_t state_game_tick(void)
     /* --- Ping beeper --- */
     if (--ping_ctr == 0) {
         ping_ctr = PING_INTERVAL;
-        beep_ping();
+        beep_ping_start();
     }
+    beep_tick();
 
     return STATE_GAME;
 }

@@ -8,10 +8,10 @@ UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
 FUSE ?= open -a Fuse
-FUSE_RUN = $(FUSE) starfield.tap
+FUSE_RUN = defaults write FusePreferences machine -string "48" 2>/dev/null; $(FUSE) starfield.tap
 else
 FUSE ?= fuse-sdl
-FUSE_RUN = $(FUSE) starfield.tap &
+FUSE_RUN = $(FUSE) --machine 48 starfield.tap &
 endif
 
 # --- Config ---

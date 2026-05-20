@@ -20,15 +20,26 @@ void sprites_init(void)
     memset(SCREEN, 0, PIX_SIZE);
 }
 
+/* Pre-computed screen offsets for player position (120, 88..103) */
+static const uint16_t player_scr[16] = {
+    0x086F, 0x096F, 0x0A6F, 0x0B6F, 0x0C6F, 0x0D6F, 0x0E6F, 0x0F6F,
+    0x088F, 0x098F, 0x0A8F, 0x0B8F, 0x0C8F, 0x0D8F, 0x0E8F, 0x0F8F
+};
+
 /* ------------------------------------------------------------------ */
 /* Draw player sprite at fixed screen centre                           */
 /* ------------------------------------------------------------------ */
 void sprites_player_draw(uint8_t frame_idx)
 {
     const uint8_t *frame_data;
+    uint8_t r;
 
     frame_data = (frame_idx & 1) ? diver_f2 : diver_f1;
-    write_sprite(SCREEN, frame_data, DIVER_X, DIVER_Y);
+    for (r = 0; r < 16; r++) {
+        uint16_t off = player_scr[r];
+        SCREEN[off]     = *frame_data++;
+        SCREEN[off + 1] = *frame_data++;
+    }
 }
 
 /* ------------------------------------------------------------------ */

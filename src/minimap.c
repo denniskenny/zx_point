@@ -170,36 +170,38 @@ void minimap_draw(void)
 
 }
 
+/* Pre-computed screen offsets for depth bar: col 27, y=160..191 */
+static const uint16_t depth_scr[32] = {
+    0x109B, 0x119B, 0x129B, 0x139B, 0x149B, 0x159B, 0x169B, 0x179B,
+    0x10BB, 0x11BB, 0x12BB, 0x13BB, 0x14BB, 0x15BB, 0x16BB, 0x17BB,
+    0x10DB, 0x11DB, 0x12DB, 0x13DB, 0x14DB, 0x15DB, 0x16DB, 0x17DB,
+    0x10FB, 0x11FB, 0x12FB, 0x13FB, 0x14FB, 0x15FB, 0x16FB, 0x17FB
+};
+
 void depth_indicator_draw(void)
 {
     uint16_t depth_val;
-    uint16_t max_depth;
-    uint8_t bar_h, y;
-    uint8_t dpx, dpy;
+    uint8_t bar_h, y, empty_rows;
     uint8_t paper_attr;
 
     /* depth_val: 0 at surface, increases as player descends */
     depth_val = player.sub_z + (uint16_t)CUBE_SUB_Z * player.gy;
-    max_depth = (uint16_t)CUBE_SUB_Z * GRID_D;
     paper_attr = depth_get_paper() | 0x07;  /* white ink on depth paper */
 
     /* Bar height: full (32) at surface, 1 at sea floor */
-    if (depth_val >= max_depth)
+    /* 31/1500 ≈ 21/1024 — avoids 32-bit division */
+    if (depth_val >= (uint16_t)CUBE_SUB_Z * GRID_D)
         bar_h = 1;
     else
-        bar_h = DEPTH_BAR_H - (uint8_t)((uint32_t)depth_val * (DEPTH_BAR_H - 1) / max_depth);
+        bar_h = 32 - (uint8_t)(((uint16_t)depth_val * 21) >> 10);
 
-    dpx = DEPTH_COL * 8;
-    dpy = DEPTH_ROW * 8;
+    empty_rows = 32 - bar_h;
 
-    /* Draw bar: empty rows on top, filled rows on bottom */
-    for (y = 0; y < DEPTH_BAR_H; y++) {
-        uint16_t off = scr_off(dpx, dpy + y);
-        if (y < DEPTH_BAR_H - bar_h)
-            SCREEN[off] = 0x00;
-        else
-            SCREEN[off] = DEPTH_BAR_MASK;
-    }
+    /* Draw bar using pre-computed screen offsets */
+    for (y = 0; y < empty_rows; y++)
+        SCREEN[depth_scr[y]] = 0x00;
+    for (; y < 32; y++)
+        SCREEN[depth_scr[y]] = DEPTH_BAR_MASK;
 
     /* Set attributes for the 4 char rows */
     for (y = 0; y < 4; y++)
