@@ -88,6 +88,7 @@ static game_state_t state_game_tick(void)
 {
     uint8_t k, joy;
     uint8_t kq, kw, ka, ks, ko, kp;
+    int8_t star_vx, star_vy, star_vz;
     uint8_t depth_changed;
     uint8_t damage;
     uint8_t spr_attr;
@@ -127,6 +128,60 @@ static game_state_t state_game_tick(void)
     if (kw && vz > -SPEED) vz--;
     else if (ks && vz <  SPEED) vz++;
     else if ((frame & 7) == 0) { if (vz > 0) vz--; else if (vz < 0) vz++; }
+
+    /* --- Apply player speed divisor (fractional accumulator) --- */
+    {
+        int8_t raw_vx = vx, raw_vy = vy, raw_vz = vz;
+#if PLAYER_SPEED_DIV > 1
+        {
+            static int8_t frac_x, frac_y, frac_z;
+            int8_t eff;
+
+            frac_x += raw_vx;
+            eff = frac_x / PLAYER_SPEED_DIV;
+            frac_x -= eff * PLAYER_SPEED_DIV;
+            vx = eff;
+
+            frac_y += raw_vy;
+            eff = frac_y / PLAYER_SPEED_DIV;
+            frac_y -= eff * PLAYER_SPEED_DIV;
+            vy = eff;
+
+            frac_z += raw_vz;
+            eff = frac_z / PLAYER_SPEED_DIV;
+            frac_z -= eff * PLAYER_SPEED_DIV;
+            vz = eff;
+        }
+#endif
+
+        /* --- Starfield inertia: snap while key held, coast when released --- */
+        {
+            static int8_t sv_x, sv_y, sv_z;
+            static uint8_t dt_x, dt_y, dt_z;
+
+            if (ko | kp) { sv_x = raw_vx; dt_x = STAR_DRIFT_FRAMES; }
+            else if (sv_x != 0 && --dt_x == 0) {
+                dt_x = STAR_DRIFT_FRAMES;
+                if (sv_x > 0) sv_x--; else sv_x++;
+            }
+
+            if (kq | ka) { sv_y = raw_vy; dt_y = STAR_DRIFT_FRAMES; }
+            else if (sv_y != 0 && --dt_y == 0) {
+                dt_y = STAR_DRIFT_FRAMES;
+                if (sv_y > 0) sv_y--; else sv_y++;
+            }
+
+            if (kw | ks) { sv_z = raw_vz; dt_z = STAR_DRIFT_FRAMES; }
+            else if (sv_z != 0 && --dt_z == 0) {
+                dt_z = STAR_DRIFT_FRAMES;
+                if (sv_z > 0) sv_z--; else sv_z++;
+            }
+
+            star_vx = sv_x;
+            star_vy = sv_y;
+            star_vz = sv_z;
+        }
+    }
 
     /* --- Player movement & cube traversal --- */
     depth_changed = player_update(vx, vy, vz);
@@ -187,9 +242,9 @@ static game_state_t state_game_tick(void)
     /* --- Draw order: erase+draw predators, stars, player on top --- */
     predators_render();
     update_and_draw_stars(
-        player.at_bound_x ? 0 : vx,
-        player.at_bound_y ? 0 : vy,
-        player.at_bound_z ? 0 : vz);
+        player.at_bound_x ? 0 : star_vx,
+        player.at_bound_y ? 0 : star_vy,
+        player.at_bound_z ? 0 : star_vz);
     sprites_player_draw((frame >> 3) & 1);
     sprites_player_set_colour(spr_attr);
 

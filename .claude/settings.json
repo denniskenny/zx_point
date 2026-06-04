@@ -10,7 +10,16 @@
       "Read(//Users/Kennyd/z88dk/examples/**)",
       "Bash(grep -B 5 -A 5 \"create-app\" ~/z88dk/examples/*/Makefile)",
       "Read(//Users/Kennyd/z88dk/**)",
-      "Read(//Applications/Fuse.app/Contents/MacOS/**)"
+      "Read(//Applications/Fuse.app/Contents/MacOS/**)",
+      "Bash(rm -f starfield.tap)",
+      "Bash(make starfield.tap)",
+      "Bash(pkill -f Fuse)",
+      "Bash(grep -E \"\\\\.\\(h\\)$\")",
+      "Read(//Users/Kennyd/projects/zx_point/**)",
+      "Bash(ls -la /Users/Kennyd/projects/zx_point/include/*.h)",
+      "Bash(xargs cat:*)",
+      "Bash(ls -la /Users/Kennyd/projects/zx_point/src/*.asm)",
+      "Bash(grep -E \"zxp|h$\")"
     ]
   }
 }

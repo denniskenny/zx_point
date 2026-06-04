@@ -62,10 +62,15 @@
 #define OXYGEN_MAX  100
 
 /* --- Sub-cube traversal --- */
-/* At SPEED=3, 50fps: sub-steps per grid cell crossing             */
-/*                     1 depth level in ~10s vertical = 500        */
+/* Sub-steps per grid cell (do NOT change to tune speed).           */
 #define CUBE_SUB_XY     16
 #define CUBE_SUB_Z      500
+
+/* --- Speed divisors --- */
+/* Effective speed = SPEED / divisor.                               */
+/* Higher values = slower.  1 = full speed, 4 = quarter speed.     */
+#define PLAYER_SPEED_DIV  4
+#define STAR_DRIFT_FRAMES 64  /* frames per velocity step when coasting to stop */
 
 /* --- Player start position (centre of grid) --- */
 #define START_GX  16
