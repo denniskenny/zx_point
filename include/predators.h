@@ -10,18 +10,20 @@
 
 typedef struct {
     uint8_t gx, gz;        /* grid position (depth implied by type) */
-    uint8_t sx, sy;        /* screen position (when visible) */
-    int8_t  sdx, sdy;      /* screen-space velocity (pixels/frame) */
     int8_t  gdx, gdz;      /* grid-space direction (+1 or -1) */
     uint8_t type;           /* PRED_RAY, PRED_SHARK, PRED_GOO */
     uint8_t active;         /* 1 = alive */
-    uint8_t visible;        /* 1 = in player's cube, on screen */
+    uint8_t visible;        /* 1 = within range at same depth */
     uint8_t anim_ctr;       /* animation frame counter */
+    uint8_t proximity_ctr;  /* frames player has been in contact range */
     uint16_t grid_move_ctr; /* countdown to next grid move */
 } predator_t;
 
 extern predator_t predators[MAX_PREDATORS];
 extern uint8_t predator_count;
+extern uint8_t pred_ray_count;
+extern uint8_t pred_shark_count;
+extern uint8_t pred_goo_count;
 
 /* Reset draw tracking (call once at game start) */
 void predators_init(void);
@@ -32,8 +34,11 @@ void predators_spawn(uint8_t level_num);
 /* Move all predators: grid traversal + screen bounce */
 void predators_update(void);
 
-/* Erase old + draw new visible predators via direct screen writes */
-void predators_render(void);
+/* XOR-erase predators from previous frame (call before background) */
+void predators_erase(void);
+
+/* XOR-draw visible predators (call after background) */
+void predators_draw(uint8_t frame_ctr);
 
 /* Check player-predator overlap.
  * Returns: 0 = none, 1 = ray/shark damage, 255 = GOO instant death */

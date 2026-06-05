@@ -11,4 +11,18 @@ void beep_ping_start(void);
 /* Advance the sound state machine. Call once per frame. */
 void beep_tick(void);
 
+/* Play n half-cycles of the ping tone. ~350n T-states.
+ * Used directly for death sequence continuous tone. */
+void sfx_play_tone(uint8_t n) __naked;
+
+/* Play n half-cycles at a given pitch (delay controls frequency).
+ * Higher delay = lower pitch.  G5=138, C6=103, E6=82, G6=68. */
+void sfx_play_note(uint8_t n, uint8_t delay) __naked;
+
+/* Fast Taps-inspired collection jingle (~40ms blocking). */
+void sfx_collect_jingle(void);
+
+/* Low-pitched Taps — played on predator damage. */
+void sfx_damage_jingle(void);
+
 #endif /* _SOUND_H_ */

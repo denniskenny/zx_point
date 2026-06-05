@@ -19,7 +19,7 @@ void player_init(void)
     player.gy = 0;                  /* depth 1 (shallowest) */
     player.sub_x = CUBE_SUB_XY / 2;
     player.sub_y = CUBE_SUB_XY / 2;
-    player.sub_z = CUBE_SUB_Z / 2;
+    player.sub_z = 0;              /* top of sub-cube (surface) */
     player.health = HEALTH_MAX;
     player.oxygen = OXYGEN_MAX;
     player.invuln_timer = 0;

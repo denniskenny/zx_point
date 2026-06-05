@@ -19,7 +19,13 @@
       "Bash(ls -la /Users/Kennyd/projects/zx_point/include/*.h)",
       "Bash(xargs cat:*)",
       "Bash(ls -la /Users/Kennyd/projects/zx_point/src/*.asm)",
-      "Bash(grep -E \"zxp|h$\")"
+      "Bash(grep -E \"zxp|h$\")",
+      "Bash(make clean:*)",
+      "Bash(make assets:*)",
+      "Bash(make)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(xxd /Users/Kennyd/projects/zx_point/design.md)",
+      "Bash(python3)"
     ]
   }
 }

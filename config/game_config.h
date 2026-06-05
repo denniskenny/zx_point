@@ -54,6 +54,7 @@
 /* --- Distances (in cube units) --- */
 #define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */
 #define CONTACT_DISTANCE  2    /* X/Y proximity for treasure pickup */
+#define TREASURE_VISIBLE_RANGE  4  /* grid cells: sprite appears when within range */
 
 /* --- Player constants --- */
 #define INVULNERABLE_FRAMES  60
@@ -64,7 +65,7 @@
 /* --- Sub-cube traversal --- */
 /* Sub-steps per grid cell (do NOT change to tune speed).           */
 #define CUBE_SUB_XY     16
-#define CUBE_SUB_Z      500
+#define CUBE_SUB_Z      300
 
 /* --- Speed divisors --- */
 /* Effective speed = SPEED / divisor.                               */
@@ -129,6 +130,12 @@
 #define PRED_Y_MIN  16
 #define PRED_Y_MAX  143
 
+/* --- Predator visibility range (grid cubes, same as treasure) --- */
+#define PRED_VISIBLE_RANGE  4
+
+/* --- Predator proximity damage (frames in contact before 1 HP lost) --- */
+#define PRED_PROXIMITY_FRAMES  50   /* 1 second at 50 fps */
+
 /* --- Shark pursuit range (grid cubes) --- */
 #define PRED_SHARK_PURSUE_RANGE  2
 
@@ -139,6 +146,6 @@
 #define SONAR_INTERVAL_NEAR  12   /* frames (~0.25s)       */
 
 /* --- Ray constant --- */
-#define RAY_CONSTANT  10
+#define RAY_CONSTANT  1
 
 #endif /* _GAME_CONFIG_H_ */

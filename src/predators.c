@@ -34,10 +34,14 @@ static uint8_t pred_rand(void)
 /* --- Predator data --- */
 predator_t predators[MAX_PREDATORS];
 uint8_t predator_count;
+uint8_t pred_ray_count;
+uint8_t pred_shark_count;
+uint8_t pred_goo_count;
 
-/* --- Previous draw position tracking for erase --- */
+/* --- Previous draw state for XOR erase --- */
 static uint8_t prev_draw_x[MAX_VISIBLE_PREDS];
 static uint8_t prev_draw_y[MAX_VISIBLE_PREDS];
+static const uint8_t *prev_frame[MAX_VISIBLE_PREDS];
 static uint8_t prev_drawn[MAX_VISIBLE_PREDS];
 static uint8_t prev_pool_count;
 
@@ -79,15 +83,12 @@ static void spawn_one(uint8_t idx, uint8_t type)
     p->type   = type;
     p->gx     = 2 + (pred_rand() % (GRID_W - 4));
     p->gz     = 2 + (pred_rand() % (GRID_H - 4));
-    p->sx     = PRED_X_MIN + (pred_rand() % (PRED_X_MAX - PRED_X_MIN));
-    p->sy     = PRED_Y_MIN + (pred_rand() % (PRED_Y_MAX - PRED_Y_MIN));
-    p->sdx    = (pred_rand() & 1) ? 1 : -1;
-    p->sdy    = (pred_rand() & 1) ? 1 : -1;
     p->gdx    = (pred_rand() & 1) ? 1 : -1;
     p->gdz    = (pred_rand() & 1) ? 1 : -1;
     p->active = 1;
     p->visible = 0;
     p->anim_ctr = pred_rand();
+    p->proximity_ctr = 0;
     p->grid_move_ctr = grid_intervals[type];
 }
 
@@ -113,10 +114,13 @@ void predators_spawn(uint8_t level_num)
     idx = 0;
     for (i = 0; i < n_rays && idx < MAX_PREDATORS; i++, idx++)
         spawn_one(idx, PRED_RAY);
+    pred_ray_count = i;
     for (i = 0; i < n_sharks && idx < MAX_PREDATORS; i++, idx++)
         spawn_one(idx, PRED_SHARK);
+    pred_shark_count = i;
     for (i = 0; i < n_goos && idx < MAX_PREDATORS; i++, idx++)
         spawn_one(idx, PRED_GOO);
+    pred_goo_count = i;
 
     predator_count = idx;
 }
@@ -172,95 +176,106 @@ void predators_update(void)
             }
         }
 
-        /* --- Visibility: same cube + same depth, not GOO --- */
-        p->visible = (p->type != PRED_GOO &&
-                      pred_depth(p->type) == player.gy &&
-                      p->gx == player.gx &&
-                      p->gz == player.gz) ? 1 : 0;
-
-        /* --- Screen-space bounce (only when visible) --- */
-        if (p->visible) {
-            if (p->sx <= PRED_X_MIN) p->sdx = 1;
-            else if (p->sx >= PRED_X_MAX) p->sdx = -1;
-            p->sx += p->sdx;
-
-            if (p->sy <= PRED_Y_MIN) p->sdy = 1;
-            else if (p->sy >= PRED_Y_MAX) p->sdy = -1;
-            p->sy += p->sdy;
-
-            p->anim_ctr++;
+        /* --- Visibility: within range + same depth, not GOO --- */
+        if (p->type != PRED_GOO && pred_depth(p->type) == player.gy) {
+            dx = (int8_t)(player.gx - p->gx);
+            dz = (int8_t)(player.gz - p->gz);
+            if (dx < 0) dx = -dx;
+            if (dz < 0) dz = -dz;
+            p->visible = (dx <= PRED_VISIBLE_RANGE &&
+                          dz <= PRED_VISIBLE_RANGE) ? 1 : 0;
+        } else {
+            p->visible = 0;
         }
+
+        if (p->visible)
+            p->anim_ctr++;
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Render visible predators using direct screen writes                  */
+/* XOR-erase predators drawn last frame (call BEFORE background update)*/
 /* ------------------------------------------------------------------ */
-void predators_render(void)
+void predators_erase(void)
+{
+    uint8_t i;
+    uint8_t bg_attr = depth_get_paper() | (ATTR[0] & 0x07);
+
+    for (i = 0; i < prev_pool_count; i++) {
+        if (prev_drawn[i]) {
+            xor_sprite_32(SCREEN, prev_frame[i],
+                          prev_draw_x[i], prev_draw_y[i]);
+            set_attr_rect(prev_draw_x[i] >> 3, prev_draw_y[i] >> 3,
+                          4, 4, bg_attr);
+            prev_drawn[i] = 0;
+        }
+    }
+    prev_pool_count = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* XOR-draw visible predators (call AFTER background update)           */
+/* ------------------------------------------------------------------ */
+void predators_draw(uint8_t frame_ctr)
 {
     uint8_t i, pool_idx;
     predator_t *p;
     const uint8_t *frame_data;
-    uint8_t draw_x;
     uint8_t attr;
+    int16_t dx_sub, dz_sub, sx, sy;
 
-    /* Erase previous frame's sprites and restore depth attrs */
-    for (i = 0; i < prev_pool_count; i++) {
-        if (prev_drawn[i]) {
-            erase_sprite_32(SCREEN, prev_draw_x[i], prev_draw_y[i]);
-            set_attr_rect(prev_draw_x[i] >> 3, prev_draw_y[i] >> 3,
-                          4, 4, depth_get_paper() | (ATTR[0] & 0x07));
-        }
-    }
-
+    attr = depth_get_paper() | 0x04;
     pool_idx = 0;
 
     for (i = 0; i < predator_count && pool_idx < MAX_VISIBLE_PREDS; i++) {
         p = &predators[i];
         if (!p->visible) continue;
 
-        /* Select frame data (toggle every 8 animation ticks).
-         * Paper colour matches current depth. */
-        if (p->type == PRED_RAY) {
-            frame_data = (p->anim_ctr & 0x08) ? ray_f2 : ray_f1;
-            attr = depth_get_paper() | 0x06;  /* yellow ink on depth paper */
-        } else {
-            frame_data = (p->anim_ctr & 0x08) ? shark_f2 : shark_f1;
-            attr = depth_get_paper() | 0x02;  /* red ink on depth paper */
-        }
+        dx_sub = (int16_t)(p->gx - player.gx) * CUBE_SUB_XY
+                 + ((CUBE_SUB_XY / 2) - player.sub_x);
+        dz_sub = (int16_t)(p->gz - player.gz) * CUBE_SUB_XY
+                 + ((CUBE_SUB_XY / 2) - player.sub_y);
 
-        /* Byte-align X for drawing (8-pixel steps) */
-        draw_x = p->sx & 0xF8;
+        sx = (DIVER_X - 8) - (dx_sub * 3 / 4);
+        sy = (DIVER_Y - 8) - (dz_sub * 3 / 4);
 
-        /* Draw sprite */
-        write_sprite_32(SCREEN, frame_data, draw_x, p->sy);
+        if (sx < PRED_X_MIN) sx = PRED_X_MIN;
+        if (sx > PRED_X_MAX) sx = PRED_X_MAX;
+        if (sy < PRED_Y_MIN) sy = PRED_Y_MIN;
+        if (sy > PRED_Y_MAX) sy = PRED_Y_MAX;
 
-        /* Set attributes (4x4 character cells) */
-        set_attr_rect(draw_x >> 3, p->sy >> 3, 4, 4, attr);
+        if (p->type == PRED_RAY)
+            frame_data = (frame_ctr & 0x08) ? ray_f2 : ray_f1;
+        else
+            frame_data = (frame_ctr & 0x08) ? shark_f2 : shark_f1;
 
-        /* Track for erase next frame */
-        prev_draw_x[pool_idx] = draw_x;
-        prev_draw_y[pool_idx] = p->sy;
+        prev_draw_x[pool_idx] = (uint8_t)sx & 0xF8;
+        prev_draw_y[pool_idx] = (uint8_t)sy;
+        prev_frame[pool_idx] = frame_data;
+
+        xor_sprite_32(SCREEN, frame_data,
+                      prev_draw_x[pool_idx], prev_draw_y[pool_idx]);
+        set_attr_rect(prev_draw_x[pool_idx] >> 3,
+                      prev_draw_y[pool_idx] >> 3, 4, 4, attr);
+
         prev_drawn[pool_idx] = 1;
-
         pool_idx++;
     }
-
-    /* Mark remaining pool slots as not drawn */
-    for (; pool_idx < MAX_VISIBLE_PREDS; pool_idx++)
-        prev_drawn[pool_idx] = 0;
 
     prev_pool_count = pool_idx;
 }
 
 /* ------------------------------------------------------------------ */
-/* Check player collision with predators                               */
-/* Returns: 0=none, 1=damage (ray/shark), 255=instant death (GOO)    */
+/* Check player proximity with predators.                              */
+/* Proximity-based damage: 1 HP lost per second of continuous contact. */
+/* Returns: 0=none, 1=damage, 255=instant death (GOO)                */
 /* ------------------------------------------------------------------ */
 uint8_t predators_check_collision(void)
 {
     uint8_t i;
     predator_t *p;
+    int8_t dx, dz;
+    uint8_t result = 0;
 
     for (i = 0; i < predator_count; i++) {
         p = &predators[i];
@@ -274,17 +289,30 @@ uint8_t predators_check_collision(void)
             continue;
         }
 
-        /* Ray/Shark: screen-space bounding box */
-        if (!p->visible) continue;
+        /* Must be at same depth */
+        if (pred_depth(p->type) != player.gy) {
+            p->proximity_ctr = 0;
+            continue;
+        }
 
-        /* Player: (DIVER_X, DIVER_Y) size 16x16 */
-        /* Pred:   (sx, sy) size 32x32 */
-        if (p->sx + 32 > DIVER_X && p->sx < DIVER_X + 16 &&
-            p->sy + 32 > DIVER_Y && p->sy < DIVER_Y + 16)
-            return 1;
+        /* Grid proximity check */
+        dx = (int8_t)(player.gx - p->gx);
+        dz = (int8_t)(player.gz - p->gz);
+        if (dx < 0) dx = -dx;
+        if (dz < 0) dz = -dz;
+
+        if (dx < CONTACT_DISTANCE && dz < CONTACT_DISTANCE) {
+            p->proximity_ctr++;
+            if (p->proximity_ctr >= PRED_PROXIMITY_FRAMES) {
+                p->proximity_ctr = 0;
+                result = 1;
+            }
+        } else {
+            p->proximity_ctr = 0;
+        }
     }
 
-    return 0;
+    return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -292,12 +320,5 @@ uint8_t predators_check_collision(void)
 /* ------------------------------------------------------------------ */
 void predators_hide_all(void)
 {
-    uint8_t i;
-    for (i = 0; i < prev_pool_count; i++) {
-        if (prev_drawn[i]) {
-            erase_sprite_32(SCREEN, prev_draw_x[i], prev_draw_y[i]);
-            prev_drawn[i] = 0;
-        }
-    }
-    prev_pool_count = 0;
+    predators_erase();
 }

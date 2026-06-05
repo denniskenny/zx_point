@@ -30,7 +30,7 @@ P / Joystick Right  - Move Right
 W / Fire Button 1   - Move Forward (into screen)
 S / Fire Button 2   - Move Backward (out of screen)
 
-Movement has inertia: holding a key accelerates the diver up to maximum speed; releasing the key causes the diver to decelerate gradually to a stop (friction applied every 8th frame). The starfield scrolls to match the diver's velocity, creating the illusion of movement. When the diver reaches the boundary of the map, the starfield stops scrolling on that axis.
+Movement has inertia: holding a key accelerates the diver up to maximum speed; releasing the key causes the diver to decelerate gradually to a stop (friction applied every 8th frame). The starfield scrolls to match the diver's velocity, creating the illusion of movement. When the diver reaches a world boundary, the starfield velocity reverses on that axis, creating a bounce effect that decays with the normal friction.
 
 ## Gameplay
 The game begins with a short animation that shows the player descending from their ship and. their oxygen gauge filling up.
@@ -69,31 +69,33 @@ These are ancient artifacts from the sunken city of R'lyeh. All archaeological t
 * Altars : A Roman altar.
 
 ### Predators
-There are three types of predators. Contact is defined as overlapping the player sprite.
+There are three types of predators. Rays and sharks are rendered as 32x32 sprites in green ink (brightness inherited from the current depth layer) when within PRED_VISIBLE_RANGE (4 grid cells) at the same depth as the player. Their screen position is computed relative to the player's sub-cube coordinates, using the same dynamic positioning system as treasures.
+
+All predators appear on the minimap at all depths as green dots.
+
+Damage is proximity-based: when a ray or shark remains within CONTACT_DISTANCE of the player for PRED_PROXIMITY_FRAMES (50 frames = 1 second), 1 HP is subtracted. A low-pitched Taps jingle plays on damage. The player is then invulnerable for invulnerable_constant frames (default 60).
 
 * Predator Constants
 invulnerable_constant : The number of frames the player is invulnerable after taking damage. Default to 60.
+PRED_VISIBLE_RANGE : Grid cells within which predator sprites are rendered. Default 4.
+PRED_PROXIMITY_FRAMES : Consecutive frames of contact before damage. Default 50 (1 second).
 
 * Rays : 32x32 pixel bitmap of a ray fish
-These appear on the minimap, have no sonar sound and move in a random direction. They only exist in shallow water. They are slower than the player.
+These appear on the minimap as green dots, have no sonar sound and move in a random direction. They only exist at depth 0 (shallow water). They are slower than the player.
 
-Rays are rendered from the side and should have frames for both left and right directions. They will swim in diagonals across the screen, reversing direction when they approache the sides, top or bottom of the screen.
-
-Rays take 1 part of the health gauge on contact but will proceed on their path giving the player an opportunity to avoid them. The player will be invulnerable for a invulnerable_constant after taking damage.
+Rays are rendered from the side and should have frames for both left and right directions. They traverse the grid diagonally, bouncing at grid boundaries.
 
 * Sharks : 32x32 pixel bitmap of a shark
 
-Sharks appear on the minimap, have no sonar sound but will move towards the player once the player is in their proximity. They are slower than the player.
+Sharks appear on the minimap as green dots, have no sonar sound but will move towards the player once the player is within PRED_SHARK_PURSUE_RANGE (2 cubes). They only exist at depth 1. They are slower than the player.
 
-Sharks are rendered from the side and should have frames for both left and right directions. They will swim in diagonals across the screen, reversing direction when they approache the sides, top or bottom of the screen.
-
-Sharks take 1 part of the health gauge on contact but will proceed on their path giving the player an opportunity to avoid them. The player will be invulnerable for invulnerable_constant after taking damage.
+Sharks are rendered from the side and should have frames for both left and right directions. They traverse the grid diagonally, bouncing at grid boundaries, and pursue the player when nearby.
 
 * Great Old Ones : 20x20 character bitmap of a great old one
 
-Great Old Ones appear on the minimap at depth 3 as a red dot with the FLASH attribute set (hardware flash, not programmatic). They have a sonar sound and move in a random direction. They are very slow but cause instant death if the player collides with them.
+Great Old Ones appear on the minimap at all depths as a green dot with the FLASH attribute set (hardware flash, not programmatic). They have a sonar sound and move in a random direction. They are very slow but cause instant death if the player enters their grid cell at depth 2.
 
-Great Old Ones are rendered as a large angler fish face approaching the screen. The graphic will be 20x20 characters in size and have three frames; approaching, open maw and closed swallow. If the player enters a frame with an old one, the game will play this animation and end (see Level Failure).
+Great Old Ones are rendered as a large angler fish face approaching the screen. The graphic will be 20x20 characters in size and have three frames; approaching, open maw and closed swallow. If the player enters a frame with an old one, the game will play this animation and end (see Level Failure). (GOO sprite not yet implemented.)
 
 ### Game Title screen
 Displays a "They That Go Down To The Sea" 256x100 pixel logo at the top of the screen.
@@ -117,8 +119,10 @@ If one of the treasures is a tablet, a random lore entry will appear from the li
 If the game is over, the list of treasures will be a total from all the levels.
 
 ### Game Intro
-Spawning predators and placing treasure should happen here.
-The title sea shanty should continue playing here
+Spawning predators and placing treasure happens here. The intro screen displays a level briefing showing the level number, level name, treasure count, relic count, and predator counts (rays, sharks, GOOs — only shown if > 0). The player presses any key to begin.
+
+The title sea shanty should continue playing here (not yet implemented).
+The full animation sequence (below) is not yet implemented. Currently a text briefing screen is shown.
 The game opens with the sea level set to Depth 1 (Cyan and White). Player controls are disabled.
 The sea line is initially set at two characters above the centre of the viewport.
 A large 100x100 pixel graphic of a boat with a crane will appear in profile on the left of the screen. it will be rendered at a point of the undulating surface line, bobbing up and down.
@@ -129,22 +133,24 @@ A pixel line will extend from the end of the crane with the player character ren
 
 Once the pixel line descends far enough that the player character is at the centre of the screen, the boat disappears and player control is enabled.
 
-### On Level Completion
-When the player has collected all of the treasure on the current level, has returned to the top centre cube and is one character square below the sea line, the level will end.
+### On Surfacing
+When the player returns to the surface (depth 0, top of sub-cube), the level ends:
 
-* Player controls are disabled
-* The ship and crane will reappear
-* The pixel line will descend to the player
-* The diver sprite will be lifted out of the water.
-* The currently collected treasures will be added to the total collected treasures.
-* The player will be taken to the Level Summary screen.
+* **All relics collected**: Level Complete -- player advances to the next level via the summary screen.
+* **Relics missing**: Game Over -- death animation plays, then summary screen, then title screen.
 
-### On Level Failure
-1. If the player run out of health or oxygen, the beeper will emit a continuous high tone and the screen will colour cycle through all attributes from white to black, passing through the intermediate colours. The cycle should take approximately 1 second.
+The player does not need to collect all treasures (flotsam is optional), but all archaeological relics must be recovered for a successful completion.
 
-2. If the player is killed by a Great Old One, the final frame of the great old one will colour cycle through all attributes from white to black, passing through the intermediate colours. The sonar beep will continue to play until a second after the final frame is displayed.
+Future implementation: the ship and crane will reappear, a pixel line will descend, and the diver will be lifted out of the water.
 
-The player will be taken to the level summary screen and then the title screen.
+### On Level Failure
+1. **Surfacing without relics**: treated as game over (see above).
+
+2. **Health or oxygen depleted**: the beeper emits a continuous high tone and the screen colour-cycles through all attributes from white to black over approximately 1 second (8 steps, 48 frames).
+
+3. **Great Old One collision**: instant death at depth 2. The death animation plays. (GOO-specific death animation with sonar not yet implemented.)
+
+The player is taken to the level summary screen and then the title screen.
 
 ## Technical Implementation
 The game will be implemented using the ZX Spectrum 48k. The game will be written in C with assembly language routines for the critical sections.
@@ -185,8 +191,8 @@ The range in cubes should also be configurable, the sound should start with a pi
 
 
 #### Additional sound effects
-- Collecting treasure: A very short zelda-style treasure collection sound
-- Taking damage: aggressive short white noise
+- Collecting treasure: Fast Taps-inspired bugle arpeggio (G-G-C, G-C-E at G5/C6/E6)
+- Taking damage: Low-pitched Taps jingle (same pattern, ~1 octave lower, delays 255/206/164)
 
 #### 48k Melodies
 These will be played using interrupts so that keyboard polling, sea line animation and sprite updates can continue.
@@ -211,7 +217,7 @@ The game should have a start up function to detect if it is running in 128k mode
 ### Screen Space
 The 3d space will consist of a starfield background and animated sprite of the player in the centre of the screen. 
 
-Treasure, Sharks and Rays will be rendered as 2d 32x32 pixel sprites when they are in the same grid cube as the player. 
+Treasure, Sharks and Rays will be rendered as 2d 32x32 pixel sprites when they are within TREASURE_VISIBLE_RANGE / PRED_VISIBLE_RANGE (4 grid cells) at the same depth as the player. Their screen position is computed dynamically from the grid distance plus sub-cube offset relative to the diver, creating smooth parallax movement.
 
 The player will be rendered as a 2d 16x16 pixel sprite in the centre of the screen. 
 
@@ -222,7 +228,7 @@ The 3d space occupies the top 160 pixel rows of the screen (char rows 0-19). The
 ### Game Space
 The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre cube.
 
-Each minimap cell (8 cubes) should take about 5 seconds to traverse horizontally. It should take approximately 10 seconds to descend one depth level (CUBE_SUB_Z=500). The player always starts at the centre of the grid in the top layer (grid position 16,16). Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
+Each minimap cell (8 cubes) should take about 5 seconds to traverse horizontally. It should take approximately 6 seconds to descend one depth level (CUBE_SUB_Z=300). The player always starts at the centre of the grid in the top layer (grid position 16,16). Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
 
 ### The Sea Line
 When the player is in the top cube, the Sea Line is represented by a sinewave line of pixels. The sinewave is animated to create an undulating effect.
@@ -250,13 +256,11 @@ The 2d minimap is an overhead (top-down) view displayed in the bottom right hand
 
 The minimap will be 32x32 pixels in size so that the 32x32 horizontal grid is fully visible, with each grid position mapping 1:1 to a minimap pixel. It will be a white grid divided into 4x4 squares of 8px width and height.
 
-Each grid square represents an 8x8 cube area in the world space (consistent with the 32x32 grid / 4 cells = 8 cubes per cell). Treasure (both flotsam and archaeological), Sharks and Rays will be indicated by red pixels at their grid position.
+Each grid square represents an 8x8 cube area in the world space (consistent with the 32x32 grid / 4 cells = 8 cubes per cell). Treasure (both flotsam and archaeological) is indicated by red pixels at their grid position. Predators (rays, sharks, and GOOs) are indicated by green pixels. All items are shown at all depths (no depth filtering on the minimap).
 
-The minimap will only show items at the current depth (e.g. Depth 2 will never show treasures as they don't occur at that depth)
+A yellow 2x2 pixel represents the player's exact grid position.
 
- A yellow pixel represents the player's exact grid position.
-
- If the player occupies the same grid element as a predator, the grid attribute will be red flash.
+If the player occupies the same minimap grid cell as a predator, the grid attribute is set to red flash. GOOs always display with the FLASH attribute.
 
 The minimap will update each time the player crosses a cell boundary. Treasure is static but Sharks and Rays will move around the minimap.
 

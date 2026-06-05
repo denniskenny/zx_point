@@ -4,6 +4,9 @@
  * Player sprite drawn directly to screen RAM using write_sprite().
  * No SP1 dependency.
  */
+#pragma disable_warning 110
+/*
+ */
 
 #include <string.h>
 #include <stdint.h>

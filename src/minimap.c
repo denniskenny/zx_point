@@ -76,10 +76,6 @@ static uint8_t player_predator_overlap(void)
 
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
-        /* Depth filter: rays at depth 0, sharks at depth 1, GOOs at depth 2 */
-        if (predators[i].type == PRED_RAY   && player.gy != 0) continue;
-        if (predators[i].type == PRED_SHARK && player.gy != 1) continue;
-        if (predators[i].type == PRED_GOO   && player.gy != 2) continue;
         if ((predators[i].gx >> 3) == pcx &&
             (predators[i].gz >> 3) == pcz)
             return 1;
@@ -120,10 +116,9 @@ void minimap_draw(void)
         }
     }
 
-    /* --- Draw treasure dots (XOR, red, 1x1 pixel, centred in cell) --- */
+    /* --- Draw treasure dots (XOR, red, 1x1 pixel, all depths) --- */
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
-        if (treasures[i].gy != player.gy) continue;  /* depth filter */
         px = MM_PX + grid_to_mm(treasures[i].gx);
         py = MM_PY + grid_to_mm(treasures[i].gz);
         xor_plot(px, py);
@@ -133,22 +128,18 @@ void minimap_draw(void)
         ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
     }
 
-    /* --- Draw predator dots (XOR, 1x1, centred in cell) --- */
+    /* --- Draw predator dots (XOR, green, 1x1, all depths) --- */
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
-        /* Depth filter: rays at depth 0, sharks at depth 1, GOOs at depth 2 */
-        if (predators[i].type == PRED_RAY   && player.gy != 0) continue;
-        if (predators[i].type == PRED_SHARK && player.gy != 1) continue;
-        if (predators[i].type == PRED_GOO   && player.gy != 2) continue;
         px = MM_PX + grid_to_mm(predators[i].gx);
         py = MM_PY + grid_to_mm(predators[i].gz);
         xor_plot(px, py);
         cell_col = MINIMAP_COL + 3 - (predators[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (predators[i].gz >> 3);
         if (predators[i].type == PRED_GOO)
-            ATTR[cell_row * 32 + cell_col] = 0x82;  /* red ink + FLASH */
+            ATTR[cell_row * 32 + cell_col] = 0x84;  /* green ink + FLASH */
         else
-            ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
+            ATTR[cell_row * 32 + cell_col] = 0x04;  /* green ink, black paper */
     }
 
     /* --- Draw player dot (XOR, yellow, 2x2 pixels, centred) --- */
@@ -189,11 +180,12 @@ void depth_indicator_draw(void)
     paper_attr = depth_get_paper() | 0x07;  /* white ink on depth paper */
 
     /* Bar height: full (32) at surface, 1 at sea floor */
-    /* 31/1500 ≈ 21/1024 — avoids 32-bit division */
+    /* Scale factor auto-computed from CUBE_SUB_Z: 31*1024/(total_depth) */
+#define DEPTH_BAR_SCALE (31 * 1024 / (CUBE_SUB_Z * GRID_D))
     if (depth_val >= (uint16_t)CUBE_SUB_Z * GRID_D)
         bar_h = 1;
     else
-        bar_h = 32 - (uint8_t)(((uint16_t)depth_val * 21) >> 10);
+        bar_h = 32 - (uint8_t)(((uint16_t)depth_val * DEPTH_BAR_SCALE) >> 10);
 
     empty_rows = 32 - bar_h;
 

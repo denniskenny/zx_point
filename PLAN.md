@@ -6,27 +6,27 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
 
 ## Phase 1: Foundation
 
-- [ ] **1.1 Project structure & build system**
-  Reorganise into multi-file build. Create `src/` for C files, keep `include/` for headers. Update Makefile to compile and link multiple .c/.asm files. Add `config/game_config.h` with all configurable constants (NUM_STARS per depth, cube_distance, contact_distance, invulnerable_constant, ray_constant, time_limit, sonar ranges, etc.).
+- [x] **1.1 Project structure & build system**
+  Reorganised into multi-file build. `src/` for C files, `include/` for headers, `config/game_config.h` with all configurable constants.
 
-- [ ] **1.2 Game state machine**
-  Create `src/state.c` / `include/state.h`. Implement the top-level state enum (STATE_TITLE, STATE_INTRO, STATE_GAME, STATE_SUMMARY, STATE_GAMEOVER) and a `state_run()` dispatcher in main(). Each state gets an `init()` and `tick()` function. Move the existing starfield/input loop into `state_game_tick()` as the starting point.
+- [x] **1.2 Game state machine**
+  `src/state.c` / `include/state.h` with STATE_TITLE, STATE_INTRO, STATE_GAME, STATE_SUMMARY, STATE_GAMEOVER. Function-pointer dispatch tables for init/tick.
 
-- [ ] **1.3 Game data structures**
-  Create `include/game.h` with global game state: player position (grid x, y, z + sub-cube offsets), velocity, health (5 steps), oxygen (percentage), current depth layer (1-3), current level number, collected treasure counts, level treasure list, total treasure list. Define the 64x3x64 grid as a flat array of flags (treasure present, predator slot index).
+- [x] **1.3 Game data structures**
+  `include/game.h` with player_t, treasure_t, level_t structs. 32x3x32 grid (no flat array — entities stored in arrays).
 
-- [ ] **1.4 128K detection stub**
-  Create `src/hw_detect.c`. Write a 128K detection routine (page bank 7 and check) that sets a global `is_128k` flag. Call it once at startup. All 128K-conditional code will check this flag. No AY code yet — just the detection.
+- [x] **1.4 128K detection stub**
+  `src/hw_detect.c` with `is_128k` flag and Kempston joystick detection.
 
 ---
 
 ## Phase 2: Rendering Core
 
-- [ ] **2.1 Depth layer attribute system**
-  Create `src/depth.c` / `include/depth.h`. Implement the 3 depth layer colour palettes (Depth 1: cyan paper/white bright ink, Depth 2: blue/green, Depth 3: black/white). Implement the transition animation (colour cycling over 3 seconds = ~150 frames at 50Hz) for all 4 direction changes as specified in the design. Expose `depth_set(layer)` and `depth_transition(from, to)`.
+- [x] **2.1 Depth layer attribute system**
+  `src/depth.c` with 3 palettes, non-blocking animated transitions (~0.15s), `depth_get_paper()` for compositing. Minimap repaints after transition completes.
 
-- [ ] **2.2 Adapt starfield for depth layers**
-  Refactor the existing starfield code into `src/starfield.c`. Make star count configurable per depth (100/50/15). Stars must be reseeded when changing depth. Ensure starfield is updated last in the frame (after sprites) as per design.
+- [x] **2.2 Adapt starfield for depth layers**
+  `src/starfield.c` with configurable star counts per depth (50/25/8). Stars reseeded on depth change.
 
 - [ ] **2.3 Sea line (sinewave)**
   Create `src/sealine.c` with an assembly-optimised sinewave renderer. The sea line appears when the player is in a Depth 1 cube. It animates (phase shifts each frame) and scrolls off-screen as the player descends. Stars and rays are culled above this line. The line position is a single y-coordinate for culling purposes. Flotsam treasure renders on this line.
@@ -34,128 +34,111 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
 - [ ] **2.4 Sea floor (flat line)**
   Add sea floor rendering to `src/sealine.c` (or a new file). A flat horizontal line visible when the player is in a Depth 3 cube. Scrolls up as the player descends toward the bottom. Archaeological treasure renders just above this line. The Great Old One is clipped to the sea floor scanline.
 
-- [ ] **2.5 Floating bus flicker avoidance**
-  Create `src/vsync.c` with an assembly routine that uses the floating bus technique (read port 0xFF, wait for non-contended period). Include a HALT fallback for emulators that don't support floating bus. This replaces the bare `halt` in the current main loop. Must be 48K/128K safe.
+- [x] **2.5 Floating bus flicker avoidance**
+  `src/vsync.c` with floating bus detection and HALT fallback. 48K/128K safe.
 
 ---
 
 ## Phase 3: Sprite System
 
-- [ ] **3.1 SP1 library integration**
-  Add SP1 to the Z88DK build flags. Configure SP1's invalidated-tiles region to cover the play area (rows 0-22, leaving row 23 for HUD). Create `src/sprites.c` / `include/sprites.h` with init/update/draw functions. SP1 will handle Player, Rays, Sharks, and Treasure sprites only.
+- [x] **3.1 Direct-draw sprite system (SP1 removed)**
+  SP1 was removed entirely. All sprites use direct screen RAM writes via `write_sprite`/`write_sprite_32`/`erase_sprite_32` in `src/gfx.c`. `src/sprites.c` handles player drawing and utility functions.
 
-- [ ] **3.2 Sprite mask generation at init**
-  Write a utility function in `src/sprites.c` that takes a sprite bitmap and generates a 1-pixel-border mask at game initialisation. This is used by SP1 for masked sprite rendering.
+- [x] **3.2 Sprite mask generation at init**
+  `sprites_gen_mask()` in `src/sprites.c` — 1-pixel border expansion.
 
-- [ ] **3.3 Sprite horizontal mirroring at init**
-  Write a utility function that mirrors a sprite bitmap horizontally. Called at init for predator sprites (rays, sharks) to generate left-facing versions from the right-facing .zxp source.
+- [x] **3.3 Sprite horizontal mirroring at init**
+  `sprites_mirror_h()` in `src/sprites.c`.
 
-- [ ] **3.4 Sprite underwater shimmer effect**
-  Write a utility function that generates the "shimmer" frame for treasure sprites: every second scanline offset by 1 pixel. Called at init for both archaeological and flotsam treasure sprites.
+- [x] **3.4 Sprite underwater shimmer effect**
+  `sprites_gen_shimmer()` in `src/sprites.c` — shifts every second scanline by 1 pixel.
 
-- [ ] **3.5 Player sprite via SP1**
-  Move the diver from direct writes to SP1. The diver stays at screen centre (120, 88). Two animation frames, alternating every 8 frames. Always yellow ink, yellow bright in the top-left character cell. Sprite attributes are independent of depth layer.
+- [x] **3.5 Player sprite (direct draw)**
+  Player drawn at fixed screen centre (120, 88) via `sprites_player_draw()`. Two frames, yellow ink. Direct writes, no SP1.
 
-- [ ] **3.6 Create all sprite .zxp assets**
-  Using ZX-Paintbrush or manually, create the following .zxp files in `assets/`:
-  - `ray.zxp` — 32x32, 2 frames (side view, right-facing)
-  - `shark.zxp` — 32x32, 2 frames (side view, right-facing)
-  - `statue.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `tablet.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `altar.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `firstaid.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `oxygen_tank.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `map.zxp` — 32x32, 2 frames (normal + shimmer)
-  - `log.zxp` — 32x32, 2 frames (normal + shimmer)
-  Update Makefile with all new asset rules and GENERATED_HEADERS list.
+- [x] **3.6 Create all sprite .zxp assets**
+  All sprite assets created: ray, shark, diver, statue, tablet, altar, firstaid, oxygen_tank, map_item, log_item, minimap_grid. Headers generated by `tools/zxp2header.py` in row-major format.
 
-- [ ] **3.7 Update zxp2header.py for SP1 column-major output**
-  Add a `--sp1` flag to `tools/zxp2header.py` that outputs sprite data in SP1's column-major format (columns of 8-pixel-wide strips) instead of row-major. Use this flag for all SP1 sprites.
+- [x] ~~**3.7 Update zxp2header.py for SP1 column-major output**~~
+  No longer needed — SP1 removed, all sprites use row-major format.
 
 ---
 
 ## Phase 4: Gameplay Systems
 
-- [ ] **4.1 Player movement & cube traversal**
-  Implement player movement within the 64x3x64 grid. Movement keys/joystick adjust sub-cube position; when the player crosses a cube boundary, update grid coordinates. Starfield velocity is driven by player movement direction. Extract `cube_distance` constant (10 seconds horizontal, 20 seconds vertical). Depth changes trigger the depth transition from 2.1.
+- [x] **4.1 Player movement & cube traversal**
+  `src/player.c` with sub-cube accumulation, grid boundary crossing, depth transitions. Inertia with friction. CUBE_SUB_XY=16, CUBE_SUB_Z=300 (reduced from original 500 for faster depth traversal).
 
-- [ ] **4.2 Camera / perspective system**
-  When in-cube sprites (treasure, predators) share the player's grid cube, project them from their 3D sub-cube position to screen coordinates using the existing perspective projection. Sprites scale based on Z distance (or just appear at fixed 32x32 when in same cube, as per design). Sprites not in the current cube are invisible (only shown on minimap).
+- [x] **4.2 Camera / perspective system**
+  Treasure and predator sprites rendered with dynamic positioning relative to the player's sub-cube coordinates. Screen position computed from grid distance * CUBE_SUB_XY + sub-cube offset, scaled to pixels. Visible within range (4 cells), not same-cube only.
 
-- [ ] **4.3 Treasure spawning & collection**
-  Implement treasure placement at level start (in `state_intro_init()`). At least one archaeological treasure per level; extras randomly flotsam or archaeological. Flotsam sub-types are random. Place treasures at random grid positions respecting depth rules (flotsam at Depth 1 sea line, archaeological at Depth 3 sea floor). Collection triggers on contact_distance proximity (X/Y only). Collected treasures are added to the level list.
+- [x] **4.3 Treasure spawning & collection**
+  `src/treasure.c` with PRNG-based spawning (seeded from title screen frame counter). Archaeological at depth 2, flotsam at depth 0. Proximity collection with Taps jingle. First aid and oxygen tank restore health/oxygen.
 
-- [ ] **4.4 HUD: oxygen bar**
-  Create `src/hud.c` / `include/hud.h`. Draw the oxygen bar as a blue horizontal tank shape in the bottom-left of the last character row. The bar depletes over the configurable time limit (default 3 minutes). When oxygen reaches 0, trigger level failure.
+- [x] **4.4 HUD: oxygen bar**
+  `src/hud.c` — white horizontal bar, depletes over TIME_LIMIT_FRAMES. Oxygen 0 = death.
 
-- [ ] **4.5 HUD: health bar**
-  Draw the health bar as a red horizontal gauge next to the oxygen bar. 5 positions. Decreased by 1 on ray/shark contact. Replenished fully by first aid kit flotsam. When health reaches 0, trigger level failure.
+- [x] **4.5 HUD: health bar**
+  Red horizontal gauge, 5 positions. Decreased by proximity damage. Replenished by first aid flotsam. Health 0 = death.
 
-- [ ] **4.6 Minimap**
-  Create `src/minimap.c` / `include/minimap.h`. A 32x32 pixel map in the bottom-right corner. Grid background is blitted from `assets/minimap_grid.zxp` (with colour attributes). Yellow 2x2 dot for the player (centred in grid cell). Red 1x1 dots for treasure, rays, and sharks (not GOO) — dots use XOR writes. Items are depth-filtered to the player's current depth. Red+flash attribute when player and predator share a grid cell. Updates once per second (50 frames). Drawn last to overlay the play area. Maps the full 64x64 horizontal grid to a 4x4 cell layout.
+- [x] **4.6 Minimap**
+  `src/minimap.c` — 32x32 pixel map. Grid image from `minimap_grid.zxp`. Yellow 2x2 player dot, red 1x1 treasure dots, green 1x1 predator dots. All items shown at all depths (no depth filtering). GOOs shown with FLASH. Updates on cell boundary crossing. Repaints after depth transition completes. Depth indicator bar in adjacent column.
 
 ---
 
 ## Phase 5: Predators
 
-- [ ] **5.1 Rays — AI & rendering**
-  Create `src/predators.c` / `include/predators.h`. Rays exist only at Depth 1. Swim diagonally, reverse at screen edges. Slower than the player. Show on minimap, no sonar sound. Rendered via SP1 when in the player's cube. 2-frame animation + horizontal mirror. Spawned at random positions within their depth at level start. Respawn if they leave the grid.
+- [x] **5.1 Rays — AI & rendering**
+  `src/predators.c`. Rays at depth 0, diagonal grid bounce. Range-based visibility (PRED_VISIBLE_RANGE=4). Dynamic screen positioning relative to player sub-cube. Green ink. 2-frame animation.
 
-- [ ] **5.2 Sharks — AI & rendering**
-  Sharks exist only at Depth 2. Swim diagonally by default but pursue the player when in adjacent cubes. Slower than the player. Show on minimap, no sonar sound. Rendered via SP1 when in the player's cube. 2-frame animation + horizontal mirror. Spawned at random positions within their depth.
+- [x] **5.2 Sharks — AI & rendering**
+  Sharks at depth 1, diagonal bounce + pursuit within PRED_SHARK_PURSUE_RANGE=2. Same rendering system as rays.
 
-- [ ] **5.3 Collision detection & damage**
-  Implement overlap detection between player sprite and predator sprites (SP1 bounding box or pixel check). On collision: decrement health by 1, set invulnerability timer (invulnerable_constant frames, default 60). Play damage sound effect. Flash player sprite during invulnerability.
+- [x] **5.3 Collision detection & damage**
+  Proximity-based: PRED_PROXIMITY_FRAMES (50 frames = 1 second) of continuous contact = 1 HP damage. Low-pitched Taps jingle on damage. Invulnerability for 60 frames with sprite flash.
 
 - [ ] **5.4 Great Old One — AI, rendering & death sequence**
-  GOOs exist only at Depth 3. Move randomly, very slow. Do NOT appear on minimap. Have a sonar sound (see 6.2). Rendered via direct screen writes (not SP1) — 20x20 character bitmap. 3 frames: approaching, open maw, closed swallow. On collision: play the 3-frame death animation, trigger game over sequence. Clipped to sea floor scanline.
+  GOOs exist only at Depth 3. Move randomly, very slow. Grid-based collision = instant death. Appear on minimap as green+flash dots. Sonar sound not yet implemented. GOO sprite (20x20 char) not yet created. Death animation sequence not yet implemented.
 
 ---
 
 ## Phase 6: Sound
 
 - [ ] **6.1 Integrate Shiru's Tritone engine**
-  Add Shiru's Tritone beeper engine to the project. Create `src/sound.c` / `include/sound.h` with `sound_init()`, `sound_play_music(track)`, `sound_play_sfx(id)`, `sound_stop()`. The engine runs via interrupts so gameplay continues during music. Music only plays in non-game states (title, summary, gameover). Sound effects play in all states.
+  Not yet started. Currently using custom beeper routines in `src/sound.c`.
 
 - [ ] **6.2 Sonar ping system**
-  Implement the sonar ping in `src/sonar.c`. Distance-based: ping every 2 seconds at 10 cubes, increasing to every 0.25 seconds at 1 cube. Uses an exponential curve. Volume/pitch increases with proximity. Uses cube_distance for calculation. Always overrides other sound effects. Used for Great Old Ones only. In 128K mode, uses AY instead of beeper (implemented in Phase 8).
+  Basic sonar ping implemented (multi-phase echo across frames). Distance-based proximity ping not yet implemented. GOO sonar not yet implemented.
 
-- [ ] **6.3 Sound effects**
-  Implement short beeper effects:
-  - Treasure collection: short ascending Zelda-style jingle
-  - Taking damage: short aggressive white noise burst
-  - Level completion: 4-note trumpet fanfare (C-E-G-C')
-  - Game over / funeral march: short descending tone
-  All effects must be very short to minimise frame drops.
+- [x] **6.3 Sound effects**
+  `src/sound.c` with:
+  - `sfx_collect_jingle()` — Taps-inspired arpeggio (G-G-C, G-C-E) at G5/C6/E6
+  - `sfx_damage_jingle()` — same pattern ~1 octave lower (delays 255/206/164)
+  - `sfx_play_tone()` — continuous tone for death sequence
+  - `sfx_play_note(n, delay)` — variable-pitch beeper note (inline Z80 asm)
+  - Sonar ping with 4-phase echo (beep_ping_start/beep_tick)
 
 - [ ] **6.4 Sea shanties — 48K beeper versions**
-  Convert the 3-channel ABC arrangements from Design.md into Shiru's Tritone format:
-  - Óró Sé do Bheatha 'Bhaile (title screen, looping)
-  - Lowlands Away (level summary, looping)
-  - Spanish Ladies / Farewell To Spain (game over, play once at half tempo)
-  Each uses all 3 Tritone channels (lead/harmony/bass).
+  Not yet started. ABC notation defined in design.md.
 
 ---
 
 ## Phase 7: Game Screens
 
-- [ ] **7.1 Title screen**
-  Implement `state_title_init()` / `state_title_tick()`. Display the 256x100 "They That Go Down To The Sea" logo at screen top (decompressed from ZX0). Render the undulating sea line at centre. Render the boat graphic bobbing on it. Play Óró Sé do Bheatha 'Bhaile in a loop. Display "Copyright Actual Size 2026 / Press Fire or Any Key to Start" at the bottom. On any key/fire: transition to STATE_INTRO.
+- [x] **7.1 Title screen** (basic)
+  Text-only title screen with game name, copyright, "Press any key". Seeds PRNG from frame counter on keypress. Logo, sea line, boat graphics not yet implemented.
 
-- [ ] **7.2 Game intro sequence**
-  Implement `state_intro_init()` / `state_intro_tick()`. Continue playing the title shanty. Set depth to 1 (cyan/white). Sea line 2 character rows above centre. Render boat graphic on left of sea line. Crane extends from bow to centre. Pixel line descends from crane tip with diver sprite attached. When diver reaches screen centre: boat disappears, sea line/starfield activate, enable player controls, transition to STATE_GAME. Spawn predators and place treasure during init.
+- [x] **7.2 Game intro sequence** (basic)
+  Level briefing screen showing level number, name, treasure/relic counts, predator counts (rays/sharks/GOOs). Spawns treasures and predators. Boat/crane animation not yet implemented.
 
-- [ ] **7.3 Level summary screen**
-  Implement `state_summary_init()` / `state_summary_tick()`. Sea line in top third with boat bobbing. Loop Lowlands Away shanty. Display list of collected treasures below sea line. If a ship's log was collected, show a random log entry. If a tablet was collected, show a random lore entry. On key press: advance to next level (STATE_INTRO) or return to title (STATE_TITLE) if game over.
+- [x] **7.3 Level summary screen** (basic)
+  Shows level complete or game over, treasure stats, total collected. No boat/sea line/shanty yet. Log/lore entries not yet implemented.
 
-- [ ] **7.4 Game over sequence**
-  Implement within `state_game_tick()` and transition to STATE_GAMEOVER.
-  - Health/oxygen death: continuous high beeper tone, colour-cycle all attributes white→black over ~1 second (50 frames, cycle through intermediate colours).
-  - Great Old One death: final GOO frame displayed, colour-cycle attributes, sonar continues for 1 second after final frame.
-  Then transition to STATE_SUMMARY (which shows total treasures across all levels), then STATE_TITLE.
+- [x] **7.4 Game over sequence**
+  8-step colour cycle (bright white → black) over 48 frames with continuous beeper tone. Transitions to summary then title.
 
-- [ ] **7.5 Level progression**
-  Implement level data table: level number → name, treasure count, predator counts (rays = level × ray_constant, sharks, GOOs). Levels 1-5 as per design, level 6+ follow the "Descent into Madness" formula (+1 each type per level). On level completion (all archaeological treasure collected, player at top-centre cube, one char below sea line): disable controls, crane/ship appear, diver lifted out, transition to STATE_SUMMARY.
+- [x] **7.5 Level progression**
+  Level names for 1-5, "Descent into Madness" for 6+. Treasure count = level number. Predators: rays = level * RAY_CONSTANT, sharks from level 3, GOOs from level 5. Surfacing (gy=0, at_bound_y=1) always ends the level: success if all relics collected, game over if not.
 
 ---
 

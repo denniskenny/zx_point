@@ -29,6 +29,9 @@ typedef struct {
     uint8_t number;                /* current level (1-based) */
     uint8_t treasure_count;        /* how many treasures this level */
     uint8_t collected_count;       /* how many collected so far */
+    uint8_t arch_count;            /* archaeological treasures this level */
+    uint8_t arch_collected;        /* archaeological treasures collected */
+    uint8_t total_collected;       /* treasures collected across all levels */
     uint16_t time_remaining;       /* frames left */
 } level_t;
 
