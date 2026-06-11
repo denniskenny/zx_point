@@ -70,7 +70,8 @@
 /* --- Speed divisors --- */
 /* Effective speed = SPEED / divisor.                               */
 /* Higher values = slower.  1 = full speed, 4 = quarter speed.     */
-#define PLAYER_SPEED_DIV  4
+#define PLAYER_SPEED_DIV    4
+#define PLAYER_DEPTH_DIV    3   /* depth ascend/descend (~30% faster than XY) */
 #define STAR_DRIFT_FRAMES 64  /* frames per velocity step when coasting to stop */
 
 /* --- Player start position (centre of grid) --- */

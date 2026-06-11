@@ -48,6 +48,10 @@ static int8_t sv_x, sv_y, sv_z;
 static uint8_t dt_x, dt_y, dt_z;
 static uint8_t was_edge_x, was_edge_y, was_edge_z;
 
+/* --- Draw state: computed in logic phase, consumed next draw phase --- */
+static int8_t star_vx, star_vy, star_vz;
+static uint8_t spr_attr;
+
 /* --- Persistent state across game states --- */
 static uint8_t current_level;
 static uint8_t game_over_flag;   /* 1 = death, 0 = level complete */
@@ -209,6 +213,7 @@ static game_state_t state_game_init(void)
     sv_x = 0; sv_y = 0; sv_z = 0;
     dt_x = 0; dt_y = 0; dt_z = 0;
     was_edge_x = 1; was_edge_y = 1; was_edge_z = 0;
+    star_vx = 0; star_vy = 0; star_vz = 0;
     frame = 0;
     ping_ctr = PING_INTERVAL;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
@@ -222,6 +227,7 @@ static game_state_t state_game_init(void)
     /* Clear screen and set up depth colours */
     sprites_init();
     depth_set(1);
+    spr_attr = depth_get_paper() | 0x06;
 
     /* Reset predator and treasure draw tracking */
     predators_init();
@@ -240,10 +246,48 @@ static game_state_t state_game_tick(void)
 {
     uint8_t k, joy;
     uint8_t kq, kw, ka, ks, ko, kp;
-    int8_t star_vx, star_vy, star_vz;
     uint8_t depth_changed;
     uint8_t damage;
-    uint8_t spr_attr;
+
+    /* ================================================================
+     * Frame structure: draw-then-compute
+     *
+     * The loop is split into two phases separated by vsync_wait():
+     *
+     *   1. DRAW PHASE  — runs immediately after vsync, while the
+     *      beam is in the top border (~14 336 T-states of safe
+     *      window).  All screen writes happen here, racing ahead
+     *      of the beam.  Uses star_vx/vy/vz, spr_attr, and
+     *      player/predator/treasure positions computed by the
+     *      PREVIOUS tick's logic phase.
+     *
+     *   2. LOGIC PHASE  — runs while the beam scans the active
+     *      display.  No screen writes (except depth-change hide,
+     *      which is a rare one-shot).  Reads input, moves entities,
+     *      checks collisions, and writes star_vx/vy/vz + spr_attr
+     *      for the NEXT draw phase.
+     *
+     * This gives one frame (20 ms) of display latency between input
+     * and visible response — imperceptible to the player.
+     * ================================================================ */
+
+    /* === DRAW PHASE =============================================== */
+    vsync_wait();
+
+    predators_erase();
+    update_and_draw_stars(star_vx, star_vy, star_vz);
+    if (!depth_is_transitioning())
+        predators_draw(frame);
+    treasure_render(frame);
+    sprites_player_draw((frame >> 3) & 1);
+    sprites_player_set_colour(spr_attr);
+
+    hud_draw(player.oxygen, player.health);
+
+    minimap_draw();
+    depth_indicator_draw();
+
+    /* === LOGIC PHASE ============================================== */
 
     /* --- Sample keyboard and adjust velocity --- */
     k  = read_keys(KEY_QWERT);
@@ -258,7 +302,6 @@ static game_state_t state_game_tick(void)
     kp = !(k & 0x01);
     ko = !(k & 0x02);
 
-    /* Kempston joystick (only if detected at startup) */
     if (has_kempston) {
         joy = read_keys(KEMP_PORT);
         if (joy & 0x08) kq = 1;
@@ -295,8 +338,8 @@ static game_state_t state_game_tick(void)
             vx = eff;
 
             frac_y += raw_vy;
-            eff = frac_y / PLAYER_SPEED_DIV;
-            frac_y -= eff * PLAYER_SPEED_DIV;
+            eff = frac_y / PLAYER_DEPTH_DIV;
+            frac_y -= eff * PLAYER_DEPTH_DIV;
             vy = eff;
 
             frac_z += raw_vz;
@@ -342,7 +385,6 @@ static game_state_t state_game_tick(void)
         uint8_t edge_z = (player.gz == 0 && player.sub_y == 0) ||
                          (player.gz == GRID_H - 1 && player.sub_y >= CUBE_SUB_XY - 1);
 
-        /* Bounce on first contact, then hold at zero */
         if (edge_x && !was_edge_x) { sv_x = -sv_x; star_vx = sv_x; }
         else if (edge_x) { sv_x = 0; star_vx = 0; }
         was_edge_x = edge_x;
@@ -369,7 +411,7 @@ static game_state_t state_game_tick(void)
         uint8_t was_trans = depth_is_transitioning();
         depth_transition_tick();
         if (was_trans && !depth_is_transitioning())
-            minimap_init();   /* transition just ended — force repaint */
+            minimap_init();
     }
 
     /* --- Treasure proximity check --- */
@@ -389,7 +431,6 @@ static game_state_t state_game_tick(void)
     /* --- Predator collision check --- */
     damage = predators_check_collision();
     if (damage == 255) {
-        /* GOO instant death */
         game_over_flag = 1;
         return STATE_GAMEOVER;
     }
@@ -416,34 +457,11 @@ static game_state_t state_game_tick(void)
         }
     }
 
-    /* --- Compute player attribute (uses live depth paper) --- */
-    if (player.invuln_timer > 0 && (player.invuln_timer & 0x02)) {
-        /* Flash: match background so sprite is invisible */
+    /* --- Compute draw state for next frame --- */
+    if (player.invuln_timer > 0 && (player.invuln_timer & 0x02))
         spr_attr = depth_get_paper() | (ATTR[0] & 0x07);
-    } else {
-        /* Normal: yellow ink (6) on current depth paper */
+    else
         spr_attr = depth_get_paper() | 0x06;
-    }
-
-    /* --- Vsync -- floating bus with HALT fallback --- */
-    vsync_wait();
-
-    /* --- Draw order: xor-erase predators, stars, xor-draw predators,
-     *     treasure, player on top --- */
-    predators_erase();
-    update_and_draw_stars(star_vx, star_vy, star_vz);
-    if (!depth_is_transitioning())
-        predators_draw(frame);
-    treasure_render(frame);
-    sprites_player_draw((frame >> 3) & 1);
-    sprites_player_set_colour(spr_attr);
-
-    /* --- HUD (oxygen + health bars) --- */
-    hud_draw(player.oxygen, player.health);
-
-    /* --- Minimap (drawn last to overlay play area) --- */
-    minimap_draw();
-    depth_indicator_draw();
 
     frame++;
 
