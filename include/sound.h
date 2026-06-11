@@ -25,4 +25,9 @@ void sfx_collect_jingle(void);
 /* Low-pitched Taps — played on predator damage. */
 void sfx_damage_jingle(void);
 
+/* Distance-based sonar ping. Call once per frame with the Chebyshev
+ * distance to the nearest target (1-10), or 0/255 for out of range.
+ * Manages its own countdown; triggers beep_ping_start when due. */
+void sonar_update(uint8_t dist);
+
 #endif /* _SOUND_H_ */

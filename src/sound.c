@@ -15,17 +15,27 @@
  */
 
 #include <stdint.h>
+#include "../config/game_config.h"
 #include "../include/sound.h"
 
 extern uint8_t border_val;
 
-/* --- State machine --- */
+/* --- Ping state machine --- */
 static uint8_t sfx_step;   /* 0=idle, 1-4 = next tone phase */
 static uint8_t sfx_wait;   /* frames to wait before next phase */
 
 /* Half-cycles per phase, silence frames after each phase */
 static const uint8_t ping_cycles[] = { 30, 18, 10, 5 };
 static const uint8_t ping_gaps[]   = {  2,  4,  5, 0 };
+
+/* --- Sonar distance-to-interval mapping (quadratic curve) ---
+ * Index 0 = 1 cube away, index 9 = 10 cubes away.
+ * interval(d) = NEAR + (FAR-NEAR) * ((d-1)/(RANGE-1))^2        */
+static const uint8_t sonar_intervals[] = {
+    12, 13, 16, 22, 29, 39, 51, 65, 81, 100
+};
+static uint8_t sonar_ctr;
+static uint8_t sonar_active;
 
 void beep_ping_start(void)
 {
@@ -139,4 +149,24 @@ void beep_tick(void)
     sfx_play_tone(ping_cycles[sfx_step - 1]);
     sfx_wait = ping_gaps[sfx_step - 1];
     if (++sfx_step > 4) sfx_step = 0;
+}
+
+void sonar_update(uint8_t dist)
+{
+    if (dist == 0 || dist > SONAR_RANGE_FAR) {
+        sonar_active = 0;
+        return;
+    }
+
+    if (!sonar_active) {
+        sonar_active = 1;
+        sonar_ctr = 0;
+    }
+
+    if (sonar_ctr > 0) {
+        sonar_ctr--;
+    } else {
+        sonar_ctr = sonar_intervals[dist - 1];
+        beep_ping_start();
+    }
 }

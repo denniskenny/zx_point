@@ -38,9 +38,6 @@
 #define DIVER_X  120   /* (256 - 16) / 2, byte-aligned */
 #define DIVER_Y  88    /* (192 - 16) / 2               */
 
-/* --- Sonar ping --- */
-#define PING_INTERVAL  12   /* frames between pings */
-
 /* --- World grid --- */
 #define GRID_W  32
 #define GRID_D  3

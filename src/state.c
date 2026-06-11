@@ -40,7 +40,6 @@ static const uint8_t depth_stars[3] = {
 /* --- Inter-frame state for STATE_GAME --- */
 static int8_t vx, vy, vz;
 static uint8_t frame;
-static uint8_t ping_ctr;
 static uint8_t oxygen_drain_ctr;
 
 /* --- Starfield inertia (persists across frames) --- */
@@ -215,7 +214,6 @@ static game_state_t state_game_init(void)
     was_edge_x = 1; was_edge_y = 1; was_edge_z = 0;
     star_vx = 0; star_vy = 0; star_vz = 0;
     frame = 0;
-    ping_ctr = PING_INTERVAL;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
 
     /* Initialise player at grid centre, full health/oxygen */
@@ -465,11 +463,8 @@ static game_state_t state_game_tick(void)
 
     frame++;
 
-    /* --- Ping beeper --- */
-    if (--ping_ctr == 0) {
-        ping_ctr = PING_INTERVAL;
-        beep_ping_start();
-    }
+    /* --- Distance-based sonar ping --- */
+    sonar_update(treasure_nearest_distance());
     beep_tick();
 
     return STATE_GAME;

@@ -112,8 +112,8 @@ void treasure_check_collection(void)
 
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
+        if (treasures[i].gy != player.gy) continue;
 
-        /* X/Y proximity check (depth not checked per design) */
         dx = (int8_t)(player.gx - treasures[i].gx);
         dz = (int8_t)(player.gz - treasures[i].gz);
         if (dx < 0) dx = -dx;
@@ -246,4 +246,22 @@ void treasure_hide_all(void)
         }
     }
     trs_prev_count = 0;
+}
+
+uint8_t treasure_nearest_distance(void)
+{
+    uint8_t i, best = 255;
+    int8_t dx, dz;
+    uint8_t d;
+
+    for (i = 0; i < level.treasure_count; i++) {
+        if (treasures[i].collected) continue;
+        dx = (int8_t)(player.gx - treasures[i].gx);
+        dz = (int8_t)(player.gz - treasures[i].gz);
+        if (dx < 0) dx = -dx;
+        if (dz < 0) dz = -dz;
+        d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
+        if (d < best) best = d;
+    }
+    return best;
 }
