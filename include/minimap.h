@@ -11,7 +11,7 @@ void minimap_init(void);
 /* Draw the minimap: 4x4 grid, player dot (yellow), item dots (red).
  * Updates on cell boundary crossings.
  * Uses XOR writes for dots over the grid.
- * Call after all other rendering (starfield, sprites, HUD). */
+ * Call after all other rendering (bubblefield, sprites, HUD). */
 void minimap_draw(void);
 
 /* Draw the 4-digit depth indicator to the left of the minimap.

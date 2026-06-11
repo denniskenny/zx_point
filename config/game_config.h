@@ -25,8 +25,8 @@
 /* R=Right  L=Left  D=Down  U=Up  F1=Forward  F2=Backward */
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 F1=4 F2=5 */
 
-/* --- Starfield parameters --- */
-#define NUM_STARS  50
+/* --- Bubblefield parameters --- */
+#define NUM_BUBBLES  50
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -43,10 +43,10 @@
 #define GRID_D  3
 #define GRID_H  32
 
-/* --- Depth-level star counts --- */
-#define STARS_DEPTH1  50
-#define STARS_DEPTH2  25
-#define STARS_DEPTH3  8
+/* --- Depth-level bubble counts --- */
+#define BUBBLES_DEPTH1  50
+#define BUBBLES_DEPTH2  25
+#define BUBBLES_DEPTH3  8
 
 /* --- Distances (in cube units) --- */
 #define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */
@@ -69,7 +69,7 @@
 /* Higher values = slower.  1 = full speed, 4 = quarter speed.     */
 #define PLAYER_SPEED_DIV    4
 #define PLAYER_DEPTH_DIV    3   /* depth ascend/descend (~30% faster than XY) */
-#define STAR_DRIFT_FRAMES 64  /* frames per velocity step when coasting to stop */
+#define BUBBLE_DRIFT_FRAMES 64  /* frames per velocity step when coasting to stop */
 
 /* --- Player start position (centre of grid) --- */
 #define START_GX  16
@@ -101,10 +101,10 @@
 #define MINIMAP_COL  28
 #define MINIMAP_SIZE 32   /* pixels (4x4 chars) */
 
-/* --- Starfield viewport (pixels) --- */
+/* --- Bubblefield viewport (pixels) --- */
 /* The play area is the top 160 rows (rows 0-19 in char coords).        */
 /* The bottom 32 rows (char rows 20-23) are reserved for the minimap    */
-/* and HUD — the starfield engine never renders below VIEW_H.           */
+/* and HUD — the bubblefield engine never renders below VIEW_H.         */
 #define VIEW_W       256
 #define VIEW_H       (MINIMAP_ROW * 8)   /* 160 */
 

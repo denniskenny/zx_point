@@ -8,10 +8,10 @@ UNAME_S := $(shell uname -s)
 
 ifeq ($(UNAME_S),Darwin)
 FUSE ?= open -a Fuse
-FUSE_RUN = defaults write FusePreferences machine -string "48" 2>/dev/null; $(FUSE) starfield.tap
+FUSE_RUN = defaults write FusePreferences machine -string "48" 2>/dev/null; $(FUSE) downship.tap
 else
 FUSE ?= fuse-sdl
-FUSE_RUN = $(FUSE) --machine 48 starfield.tap &
+FUSE_RUN = $(FUSE) --machine 48 downship.tap &
 endif
 
 # --- Config ---
@@ -69,7 +69,7 @@ GENERATED_HEADERS = include/diver.h \
     include/minimap_grid.h
 
 # --- Source files (multi-file build) ---
-SRCS = src/main.c src/state.c src/starfield.c src/gfx.c src/input.c src/sound.c \
+SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \
        src/hw_detect.c src/depth.c src/sealine.c src/vsync.c src/sprites.c \
        src/player.c src/treasure.c src/hud.c src/minimap.c src/predators.c
 
@@ -81,24 +81,24 @@ HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
           $(GENERATED_HEADERS)
 
 # --- Top-level targets ---
-all: starfield.tap
+all: downship.tap
 
 .PHONY: all run clean assets test-legacy
 
 assets: $(GENERATED_HEADERS)
 
-run: starfield.tap
+run: downship.tap
 	$(FUSE_RUN)
 
 # --- Compile, link & package (multi-file) ---
-starfield.tap: $(SRCS) $(HEADERS)
-	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o starfield $(SRCS) $(LDFLAGS)
+downship.tap: $(SRCS) $(HEADERS)
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship $(SRCS) $(LDFLAGS)
 
 # --- Legacy single-file build (regression reference) ---
 test-legacy: starfield.c include/diver.h
-	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o starfield starfield.c -lm -create-app
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship starfield.c -lm -create-app
 
 # --- Clean ---
 clean:
-	rm -f starfield starfield.tap starfield_CODE.bin starfield_data_user.bin starfield_code.tap *.o *.map
+	rm -f downship downship.tap downship_CODE.bin downship_data_user.bin downship_code.tap *.o *.map
 	rm -f $(GENERATED_HEADERS)

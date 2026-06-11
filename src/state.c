@@ -23,18 +23,18 @@
 #include "../include/minimap.h"
 #include "../include/predators.h"
 
-/* --- Starfield public API (from src/starfield.c) --- */
-extern void init_stars(void);
-extern void stars_set_count(uint8_t count);
-extern void stars_erase_all(void);
-extern void update_and_draw_stars(int8_t vx, int8_t vy, int8_t vz);
+/* --- Bubblefield public API (from src/bubblefield.c) --- */
+extern void init_bubbles(void);
+extern void bubbles_set_count(uint8_t count);
+extern void bubbles_erase_all(void);
+extern void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz);
 
 /* --- Border colour (shared with depth.c and sound.c) --- */
 extern uint8_t border_val;
 
-/* --- Star counts per depth (0-indexed by gy) --- */
-static const uint8_t depth_stars[3] = {
-    STARS_DEPTH1, STARS_DEPTH2, STARS_DEPTH3
+/* --- Bubble counts per depth (0-indexed by gy) --- */
+static const uint8_t depth_bubbles[3] = {
+    BUBBLES_DEPTH1, BUBBLES_DEPTH2, BUBBLES_DEPTH3
 };
 
 /* --- Inter-frame state for STATE_GAME --- */
@@ -42,13 +42,13 @@ static int8_t vx, vy, vz;
 static uint8_t frame;
 static uint8_t oxygen_drain_ctr;
 
-/* --- Starfield inertia (persists across frames) --- */
+/* --- Bubblefield inertia (persists across frames) --- */
 static int8_t sv_x, sv_y, sv_z;
 static uint8_t dt_x, dt_y, dt_z;
 static uint8_t was_edge_x, was_edge_y, was_edge_z;
 
 /* --- Draw state: computed in logic phase, consumed next draw phase --- */
-static int8_t star_vx, star_vy, star_vz;
+static int8_t bubble_vx, bubble_vy, bubble_vz;
 static uint8_t spr_attr;
 
 /* --- Persistent state across game states --- */
@@ -212,15 +212,15 @@ static game_state_t state_game_init(void)
     sv_x = 0; sv_y = 0; sv_z = 0;
     dt_x = 0; dt_y = 0; dt_z = 0;
     was_edge_x = 1; was_edge_y = 1; was_edge_z = 0;
-    star_vx = 0; star_vy = 0; star_vz = 0;
+    bubble_vx = 0; bubble_vy = 0; bubble_vz = 0;
     frame = 0;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
 
     /* Initialise player at grid centre, full health/oxygen */
     player_init();
 
-    stars_set_count(STARS_DEPTH1);
-    init_stars();
+    bubbles_set_count(BUBBLES_DEPTH1);
+    init_bubbles();
 
     /* Clear screen and set up depth colours */
     sprites_init();
@@ -255,14 +255,14 @@ static game_state_t state_game_tick(void)
      *   1. DRAW PHASE  — runs immediately after vsync, while the
      *      beam is in the top border (~14 336 T-states of safe
      *      window).  All screen writes happen here, racing ahead
-     *      of the beam.  Uses star_vx/vy/vz, spr_attr, and
+     *      of the beam.  Uses bubble_vx/vy/vz, spr_attr, and
      *      player/predator/treasure positions computed by the
      *      PREVIOUS tick's logic phase.
      *
      *   2. LOGIC PHASE  — runs while the beam scans the active
      *      display.  No screen writes (except depth-change hide,
      *      which is a rare one-shot).  Reads input, moves entities,
-     *      checks collisions, and writes star_vx/vy/vz + spr_attr
+     *      checks collisions, and writes bubble_vx/vy/vz + spr_attr
      *      for the NEXT draw phase.
      *
      * This gives one frame (20 ms) of display latency between input
@@ -273,7 +273,7 @@ static game_state_t state_game_tick(void)
     vsync_wait();
 
     predators_erase();
-    update_and_draw_stars(star_vx, star_vy, star_vz);
+    update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
     if (!depth_is_transitioning())
         predators_draw(frame);
     treasure_render(frame);
@@ -347,28 +347,28 @@ static game_state_t state_game_tick(void)
         }
 #endif
 
-        /* --- Starfield inertia: snap while key held, coast when released --- */
-        if (ko | kp) { sv_x = raw_vx; dt_x = STAR_DRIFT_FRAMES; }
+        /* --- Bubblefield inertia: snap while key held, coast when released --- */
+        if (ko | kp) { sv_x = raw_vx; dt_x = BUBBLE_DRIFT_FRAMES; }
         else if (sv_x != 0 && --dt_x == 0) {
-            dt_x = STAR_DRIFT_FRAMES;
+            dt_x = BUBBLE_DRIFT_FRAMES;
             if (sv_x > 0) sv_x--; else sv_x++;
         }
 
-        if (kq | ka) { sv_y = raw_vy; dt_y = STAR_DRIFT_FRAMES; }
+        if (kq | ka) { sv_y = raw_vy; dt_y = BUBBLE_DRIFT_FRAMES; }
         else if (sv_y != 0 && --dt_y == 0) {
-            dt_y = STAR_DRIFT_FRAMES;
+            dt_y = BUBBLE_DRIFT_FRAMES;
             if (sv_y > 0) sv_y--; else sv_y++;
         }
 
-        if (kw | ks) { sv_z = raw_vz; dt_z = STAR_DRIFT_FRAMES; }
+        if (kw | ks) { sv_z = raw_vz; dt_z = BUBBLE_DRIFT_FRAMES; }
         else if (sv_z != 0 && --dt_z == 0) {
-            dt_z = STAR_DRIFT_FRAMES;
+            dt_z = BUBBLE_DRIFT_FRAMES;
             if (sv_z > 0) sv_z--; else sv_z++;
         }
 
-        star_vx = sv_x;
-        star_vy = sv_y;
-        star_vz = sv_z;
+        bubble_vx = sv_x;
+        bubble_vy = sv_y;
+        bubble_vz = sv_z;
     }
 
     /* --- Player movement & cube traversal --- */
@@ -383,20 +383,20 @@ static game_state_t state_game_tick(void)
         uint8_t edge_z = (player.gz == 0 && player.sub_y == 0) ||
                          (player.gz == GRID_H - 1 && player.sub_y >= CUBE_SUB_XY - 1);
 
-        if (edge_x && !was_edge_x) { sv_x = -sv_x; star_vx = sv_x; }
-        else if (edge_x) { sv_x = 0; star_vx = 0; }
+        if (edge_x && !was_edge_x) { sv_x = -sv_x; bubble_vx = sv_x; }
+        else if (edge_x) { sv_x = 0; bubble_vx = 0; }
         was_edge_x = edge_x;
 
-        if (edge_y && !was_edge_y) { sv_y = -sv_y; star_vy = sv_y; }
-        else if (edge_y) { sv_y = 0; star_vy = 0; }
+        if (edge_y && !was_edge_y) { sv_y = -sv_y; bubble_vy = sv_y; }
+        else if (edge_y) { sv_y = 0; bubble_vy = 0; }
         was_edge_y = edge_y;
 
-        if (edge_z && !was_edge_z) { sv_z = -sv_z; star_vz = sv_z; }
-        else if (edge_z) { sv_z = 0; star_vz = 0; }
+        if (edge_z && !was_edge_z) { sv_z = -sv_z; bubble_vz = sv_z; }
+        else if (edge_z) { sv_z = 0; bubble_vz = 0; }
         was_edge_z = edge_z;
     }
     if (depth_changed) {
-        stars_set_count(depth_stars[player.gy]);
+        bubbles_set_count(depth_bubbles[player.gy]);
         predators_hide_all();
         treasure_hide_all();
     }

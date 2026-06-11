@@ -18,7 +18,7 @@
 #include "../include/ray.h"
 #include "../include/shark.h"
 
-/* --- PRNG (separate seed from starfield & treasure) --- */
+/* --- PRNG (separate seed from bubblefield & treasure) --- */
 static uint16_t p_lfsr = 0xBEEF;
 static uint16_t p_weyl = 0;
 

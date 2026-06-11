@@ -18,7 +18,7 @@ void sealine_update(uint8_t base_y);
 void sealine_erase(void);
 
 /* Get the current cull y-coordinate.
- * Stars and rays with sy < this value should not be drawn. */
+ * Bubbles and rays with sy < this value should not be drawn. */
 uint8_t sealine_get_cull_y(void);
 
 /* Returns 1 if the sea line is currently visible on screen */

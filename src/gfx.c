@@ -1,7 +1,7 @@
 /*
  * gfx.c — Low-level ZX Spectrum graphics helpers
  *
- * Extracted from starfield.c lines 113-160.
+ * Extracted from bubblefield.c.
  */
 
 #include "../config/game_config.h"

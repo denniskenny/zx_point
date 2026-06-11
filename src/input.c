@@ -1,7 +1,7 @@
 /*
  * input.c — Keyboard / joystick reading via naked asm
  *
- * Extracted from starfield.c lines 69-79.
+ * Extracted from bubblefield.c.
  */
 
 #include "../include/input.h"

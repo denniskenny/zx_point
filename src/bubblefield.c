@@ -1,28 +1,28 @@
 /*
- * starfield.c — PRNG, star_t, init/update/draw stars
+ * bubblefield.c — PRNG, bubble_t, init/update/draw bubbles
  *
  * Public API:
- *   init_stars()                         — seed all stars
- *   stars_set_count(n)                   — change active star count
- *   stars_erase_all()                    — erase visible stars from screen
- *   update_and_draw_stars(vx, vy, vz)    — one frame update (Z80 asm)
+ *   init_bubbles()                         — seed all bubbles
+ *   bubbles_set_count(n)                   — change active bubble count
+ *   bubbles_erase_all()                    — erase visible bubbles from screen
+ *   update_and_draw_bubbles(vx, vy, vz)    — one frame update (Z80 asm)
  */
 
 #include <stdint.h>
 #include "../config/game_config.h"
 #include "../include/gfx.h"
 
-/* --- Star type --- */
+/* --- Bubble type --- */
 typedef struct {
     int16_t x, y, z;
     uint8_t psx, psy;   /* previous screen coords (psy=255 = not visible) */
     uint8_t pclose;      /* previous frame was 2x2 */
-} star_t;
+} bubble_t;
 
 #define PSY_NONE 255
 
-static star_t stars[NUM_STARS];
-static uint8_t star_count = NUM_STARS;  /* active stars (can be < NUM_STARS) */
+static bubble_t bubbles[NUM_BUBBLES];
+static uint8_t bubble_count = NUM_BUBBLES;  /* active bubbles (can be < NUM_BUBBLES) */
 
 /* ------------------------------------------------------------------ */
 /* 16-bit LFSR PRNG                                                    */
@@ -54,65 +54,71 @@ static int16_t rand_z(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Erase a star at its previous screen position                        */
+/* Erase a bubble at its previous screen position                      */
 /* ------------------------------------------------------------------ */
-static void erase_star(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
+static void erase_bubble(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
 {
-    unplot(buf, px, py);
     if (pclose) {
         unplot(buf, px + 1, py);
-        unplot(buf, px, py + 1);
-        unplot(buf, px + 1, py + 1);
+        unplot(buf, px + 2, py);
+        unplot(buf, px,     py + 1);
+        unplot(buf, px + 3, py + 1);
+        unplot(buf, px,     py + 2);
+        unplot(buf, px + 3, py + 2);
+        unplot(buf, px + 1, py + 3);
+        unplot(buf, px + 2, py + 3);
+    } else {
+        unplot(buf, px, py);
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Set the active star count (capped at NUM_STARS)                     */
+/* Set the active bubble count (capped at NUM_BUBBLES)                 */
 /* ------------------------------------------------------------------ */
-void stars_set_count(uint8_t count)
+void bubbles_set_count(uint8_t count)
 {
     uint8_t i;
 
-    if (count > NUM_STARS) count = NUM_STARS;
+    if (count > NUM_BUBBLES) count = NUM_BUBBLES;
 
-    /* Erase stars that are being deactivated */
-    for (i = count; i < star_count; i++) {
-        if (stars[i].psy != PSY_NONE)
-            erase_star(SCREEN, stars[i].psx, stars[i].psy,
-                       stars[i].pclose);
-        stars[i].psy = PSY_NONE;
+    /* Erase bubbles that are being deactivated */
+    for (i = count; i < bubble_count; i++) {
+        if (bubbles[i].psy != PSY_NONE)
+            erase_bubble(SCREEN, bubbles[i].psx, bubbles[i].psy,
+                       bubbles[i].pclose);
+        bubbles[i].psy = PSY_NONE;
     }
 
-    star_count = count;
+    bubble_count = count;
 }
 
 /* ------------------------------------------------------------------ */
-/* Erase all currently visible stars from the screen                   */
+/* Erase all currently visible bubbles from the screen                 */
 /* ------------------------------------------------------------------ */
-void stars_erase_all(void)
+void bubbles_erase_all(void)
 {
     uint8_t i;
-    for (i = 0; i < star_count; i++) {
-        if (stars[i].psy != PSY_NONE) {
-            erase_star(SCREEN, stars[i].psx, stars[i].psy,
-                       stars[i].pclose);
-            stars[i].psy = PSY_NONE;
+    for (i = 0; i < bubble_count; i++) {
+        if (bubbles[i].psy != PSY_NONE) {
+            erase_bubble(SCREEN, bubbles[i].psx, bubbles[i].psy,
+                       bubbles[i].pclose);
+            bubbles[i].psy = PSY_NONE;
         }
     }
 }
 
 /* ------------------------------------------------------------------ */
-/* Initialise all active stars to random positions                     */
+/* Initialise all active bubbles to random positions                   */
 /* ------------------------------------------------------------------ */
-void init_stars(void)
+void init_bubbles(void)
 {
     uint8_t i;
-    for (i = 0; i < star_count; i++) {
-        stars[i].x = rand_xy();
-        stars[i].y = rand_xy();
-        stars[i].z = rand_z();
-        stars[i].psy = PSY_NONE;
-        stars[i].pclose = 0;
+    for (i = 0; i < bubble_count; i++) {
+        bubbles[i].x = rand_xy();
+        bubbles[i].y = rand_xy();
+        bubbles[i].z = rand_z();
+        bubbles[i].psy = PSY_NONE;
+        bubbles[i].pclose = 0;
     }
 }
 
@@ -167,14 +173,14 @@ static uint16_t sf_recip;
 static uint8_t sf_sx;
 
 /* ------------------------------------------------------------------ */
-/* Update positions and draw all active stars for one frame.           */
+/* Update positions and draw all active bubbles for one frame.         */
 /* Full Z80 assembly inner loop — replaces the C version for speed.    */
 /*                                                                     */
-/* Star struct layout (9 bytes, little-endian):                        */
+/* Bubble struct layout (9 bytes, little-endian):                      */
 /*   +0,+1: x (int16_t)   +2,+3: y (int16_t)   +4,+5: z (int16_t)   */
 /*   +6: psx (uint8_t)    +7: psy (uint8_t)     +8: pclose (uint8_t)  */
 /* ------------------------------------------------------------------ */
-void update_and_draw_stars(int8_t vx, int8_t vy, int8_t vz) __naked
+void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
 {
     (void)vx; (void)vy; (void)vz;
     __asm
@@ -193,18 +199,18 @@ void update_and_draw_stars(int8_t vx, int8_t vy, int8_t vz) __naked
     ld  (_sf_vz), a
 
     ;; ---- Loop setup ----
-    ld  a, (_star_count)
+    ld  a, (_bubble_count)
     or  a
     ret z
 
     ;; Save IX (callee-saved in SDCC convention)
     push ix
     ld  (_sf_count), a
-    ld  ix, _stars
+    ld  ix, _bubbles
 
     ;; ================================================================
-    ;; Main loop — one iteration per star
-    ;; IX points to current star_t throughout
+    ;; Main loop — one iteration per bubble
+    ;; IX points to current bubble_t throughout
     ;; ================================================================
 _sf_loop:
 
@@ -212,31 +218,69 @@ _sf_loop:
     ld  a, (ix+7)
     inc a                       ; psy was 255 (PSY_NONE)? → A wraps to 0
     jr  z, _sf_no_erase
-    dec a                       ; restore psy
-    ld  d, a                    ; D = y
-    ld  e, (ix+6)               ; E = x
-    call _sf_unplot
-
     ld  a, (ix+8)               ; pclose
     or  a
-    jr  z, _sf_no_erase
+    jr  nz, _sf_erase_bubble
 
-    ;; 2x2 close star: unplot 3 extra pixels
+    ;; Far bubble: single pixel
     ld  d, (ix+7)
+    ld  e, (ix+6)
+    call _sf_unplot
+    jr  _sf_no_erase
+
+_sf_erase_bubble:
+    ;; 4x4 bubble: .##. / #..# / #..# / .##.
+    ld  d, (ix+7)               ; row 0
     ld  e, (ix+6)
     inc e
     call _sf_unplot             ; (x+1, y)
-
     ld  d, (ix+7)
+    ld  e, (ix+6)
+    inc e
+    inc e
+    call _sf_unplot             ; (x+2, y)
+
+    ld  d, (ix+7)               ; row 1
     inc d
     ld  e, (ix+6)
     call _sf_unplot             ; (x, y+1)
-
     ld  d, (ix+7)
     inc d
     ld  e, (ix+6)
     inc e
-    call _sf_unplot             ; (x+1, y+1)
+    inc e
+    inc e
+    call _sf_unplot             ; (x+3, y+1)
+
+    ld  d, (ix+7)               ; row 2
+    inc d
+    inc d
+    ld  e, (ix+6)
+    call _sf_unplot             ; (x, y+2)
+    ld  d, (ix+7)
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    inc e
+    inc e
+    call _sf_unplot             ; (x+3, y+2)
+
+    ld  d, (ix+7)               ; row 3
+    inc d
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    call _sf_unplot             ; (x+1, y+3)
+    ld  d, (ix+7)
+    inc d
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    inc e
+    call _sf_unplot             ; (x+2, y+3)
 
 _sf_no_erase:
 
@@ -362,7 +406,7 @@ _sf_z_ok:
     ;; Check sx: must have H==0 (sx in [0,255])
     ld  a, h
     or  a
-    jr  nz, _sf_offscr
+    jp  nz, _sf_offscr
     ld  a, l
     ld  (_sf_sx), a
 
@@ -374,10 +418,10 @@ _sf_z_ok:
     ;; Check sy: must be in [0, VIEW_H-1] i.e. [0, 159]
     ld  a, h
     or  a
-    jr  nz, _sf_offscr
+    jp  nz, _sf_offscr
     ld  a, l
     cp  160
-    jr  nc, _sf_offscr
+    jp  nc, _sf_offscr
 
     ;; ======== PLOT ========
     ld  d, l                    ; D = sy
@@ -385,41 +429,81 @@ _sf_z_ok:
     ld  e, a                    ; E = sx
     ld  (ix+6), e               ; psx = sx
     ld  (ix+7), d               ; psy = sy
-    call _sf_plot
 
-    ;; Close star depth cue: z < 85 (Z_MAX/3) → draw 2x2
+    ;; Close bubble depth cue: z < 85 → draw 4x4 bubble
     ld  a, (ix+4)
     cp  85
-    jr  nc, _sf_not_close
+    jr  nc, _sf_far_plot
 
     ld  (ix+8), 1               ; pclose = 1
-    ld  d, (ix+7)
+
+    ;; 4x4 bubble: .##. / #..# / #..# / .##.
+    ld  d, (ix+7)               ; row 0
     ld  e, (ix+6)
     inc e
     call _sf_plot               ; (sx+1, sy)
-
     ld  d, (ix+7)
+    ld  e, (ix+6)
+    inc e
+    inc e
+    call _sf_plot               ; (sx+2, sy)
+
+    ld  d, (ix+7)               ; row 1
     inc d
     ld  e, (ix+6)
     call _sf_plot               ; (sx, sy+1)
-
     ld  d, (ix+7)
     inc d
     ld  e, (ix+6)
     inc e
-    call _sf_plot               ; (sx+1, sy+1)
+    inc e
+    inc e
+    call _sf_plot               ; (sx+3, sy+1)
+
+    ld  d, (ix+7)               ; row 2
+    inc d
+    inc d
+    ld  e, (ix+6)
+    call _sf_plot               ; (sx, sy+2)
+    ld  d, (ix+7)
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    inc e
+    inc e
+    call _sf_plot               ; (sx+3, sy+2)
+
+    ld  d, (ix+7)               ; row 3
+    inc d
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    call _sf_plot               ; (sx+1, sy+3)
+    ld  d, (ix+7)
+    inc d
+    inc d
+    inc d
+    ld  e, (ix+6)
+    inc e
+    inc e
+    call _sf_plot               ; (sx+2, sy+3)
 
     jr  _sf_next
 
-_sf_not_close:
+_sf_far_plot:
     ld  (ix+8), 0               ; pclose = 0
+    ld  d, (ix+7)
+    ld  e, (ix+6)
+    call _sf_plot
     jr  _sf_next
 
 _sf_offscr:
     ld  (ix+7), 255             ; psy = PSY_NONE
 
 _sf_next:
-    ;; Advance IX to next star (+9 bytes)
+    ;; Advance IX to next bubble (+9 bytes)
     ld  de, 9
     add ix, de
     ld  a, (_sf_count)
@@ -538,7 +622,7 @@ _sf_unplot:
     ;; Result is the middle two bytes (bits 8-23) of the 24-bit product.
     ;;
     ;; Input:  A = signed coordinate value
-    ;;         _sf_recip must hold recip_z[z] for current star
+    ;;         _sf_recip must hold recip_z[z] for current bubble
     ;; Output: HL = (A * recip) >> 8 (signed 16-bit)
     ;; Destroys: A, BC, DE.  Preserves: IX.
     ;; ================================================================

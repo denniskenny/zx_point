@@ -105,7 +105,7 @@ void sealine_update(uint8_t base_y)
 
 uint8_t sealine_get_cull_y(void)
 {
-    /* Stars above this y should be culled.
+    /* Bubbles above this y should be culled.
      * Use base_y minus amplitude as the cull line (conservative). */
     if (!sl_visible) return 0;
     if (sl_base_y < 7) return 0;

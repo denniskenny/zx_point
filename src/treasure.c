@@ -23,7 +23,7 @@
 #include "../include/map_item.h"
 #include "../include/log_item.h"
 
-/* --- Simple PRNG (separate from starfield's) --- */
+/* --- Simple PRNG (separate from bubblefield's) --- */
 static uint16_t t_lfsr = 0x1337;
 static uint16_t t_weyl = 0;
 
