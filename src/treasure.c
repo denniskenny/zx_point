@@ -56,6 +56,7 @@ static const uint8_t * const trs_frame2[TREASURE_TYPE_COUNT] = {
 #define MAX_VISIBLE_TREASURES 2
 static uint8_t trs_prev_x[MAX_VISIBLE_TREASURES];
 static uint8_t trs_prev_y[MAX_VISIBLE_TREASURES];
+static const uint8_t *trs_prev_frame[MAX_VISIBLE_TREASURES];
 static uint8_t trs_prev_drawn[MAX_VISIBLE_TREASURES];
 static uint8_t trs_prev_count;
 
@@ -164,10 +165,11 @@ void treasure_render(uint8_t frame_ctr)
     uint8_t draw_x, attr;
     int16_t dx_sub, dz_sub, sx, sy;
 
-    /* Erase previous frame's treasure sprites */
+    /* XOR-erase previous frame's treasure sprites */
     for (i = 0; i < trs_prev_count; i++) {
         if (trs_prev_drawn[i]) {
-            erase_sprite_32(SCREEN, trs_prev_x[i], trs_prev_y[i]);
+            xor_sprite_32(SCREEN, trs_prev_frame[i],
+                          trs_prev_x[i], trs_prev_y[i]);
             set_attr_rect(trs_prev_x[i] >> 3, trs_prev_y[i] >> 3,
                           4, 4, depth_get_paper() | (ATTR[0] & 0x07));
         }
@@ -211,17 +213,17 @@ void treasure_render(uint8_t frame_ctr)
             ? trs_frame2[treasures[i].type]
             : trs_frame1[treasures[i].type];
 
-        /* Bright white ink on current depth paper */
-        attr = depth_get_paper() | 0x47;
+        attr = depth_get_paper() | 0x07;
 
         /* Byte-align X for drawing */
         draw_x = (uint8_t)sx & 0xF8;
 
-        write_sprite_32(SCREEN, frame_data, draw_x, (uint8_t)sy);
+        xor_sprite_32(SCREEN, frame_data, draw_x, (uint8_t)sy);
         set_attr_rect(draw_x >> 3, (uint8_t)sy >> 3, 4, 4, attr);
 
         trs_prev_x[pool_idx] = draw_x;
         trs_prev_y[pool_idx] = (uint8_t)sy;
+        trs_prev_frame[pool_idx] = frame_data;
         trs_prev_drawn[pool_idx] = 1;
 
         pool_idx++;
@@ -239,7 +241,8 @@ void treasure_hide_all(void)
     uint8_t i;
     for (i = 0; i < trs_prev_count; i++) {
         if (trs_prev_drawn[i]) {
-            erase_sprite_32(SCREEN, trs_prev_x[i], trs_prev_y[i]);
+            xor_sprite_32(SCREEN, trs_prev_frame[i],
+                          trs_prev_x[i], trs_prev_y[i]);
             set_attr_rect(trs_prev_x[i] >> 3, trs_prev_y[i] >> 3,
                           4, 4, depth_get_paper() | (ATTR[0] & 0x07));
             trs_prev_drawn[i] = 0;

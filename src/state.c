@@ -24,6 +24,8 @@
 #include "../include/predators.h"
 #include "../include/sealine.h"
 #include "../include/vignette.h"
+#include "../include/dzx0.h"
+#include "../include/goo_data.h"
 
 /* --- Bubblefield public API (from src/bubblefield.c) --- */
 extern void init_bubbles(void);
@@ -105,14 +107,7 @@ static void print_num(uint8_t col, uint8_t row, uint8_t val)
 /* Clear screen and set uniform attributes + border */
 static void vignette_load(void)
 {
-    const uint8_t *src = vignette_rle;
-    uint8_t *dst = SCREEN;
-    uint8_t count;
-    while ((count = *src++) != 0) {
-        uint8_t val = *src++;
-        while (count--)
-            *dst++ |= val;
-    }
+    dzx0_decompress(vignette_zx0, SCREEN);
 }
 
 static void screen_clear(uint8_t attr, uint8_t border)
@@ -498,7 +493,7 @@ static game_state_t state_game_tick(void)
     damage = predators_check_collision();
     if (damage == 255) {
         game_over_flag = 1;
-        return STATE_GAMEOVER;
+        return STATE_GOO_DEATH;
     }
     if (damage > 0 && player.invuln_timer == 0) {
         if (player.health > damage)
@@ -657,22 +652,90 @@ static game_state_t state_summary_tick(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* STATE_GOO_DEATH — anglerfish reveal + swallow animation             */
+/* ------------------------------------------------------------------ */
+
+#define SCRATCH_BUF ((uint8_t *)0x6000)
+
+static const uint8_t * const goo_frames[4] = {
+    goo_frame1, goo_frame2, goo_frame3, goo_frame4
+};
+static const uint8_t goo_hold[4] = {
+    50, 40, 60, 50
+};
+
+static uint8_t goo_step;
+static uint8_t goo_timer;
+
+static void xor_crop_to_screen(void)
+{
+    uint8_t *src = SCRATCH_BUF;
+    uint8_t y, col;
+    uint16_t off;
+
+    for (y = GOO_CROP_ROW; y < GOO_CROP_ROW + GOO_CROP_H; y++) {
+        off = scr_off(GOO_CROP_COL << 3, y);
+        for (col = 0; col < GOO_CROP_W; col++)
+            SCREEN[off + col] ^= *src++;
+    }
+}
+
+static game_state_t state_goo_death_init(void)
+{
+    goo_step = 0;
+    goo_timer = 0;
+
+    dzx0_decompress(goo_frames[0], SCRATCH_BUF);
+    xor_crop_to_screen();
+
+    sfx_play_note(30, 255);
+
+    return STATE_GOO_DEATH;
+}
+
+static game_state_t state_goo_death_tick(void)
+{
+    vsync_wait();
+
+    if (++goo_timer >= goo_hold[goo_step]) {
+        goo_step++;
+        if (goo_step >= 4)
+            return STATE_GAMEOVER;
+
+        goo_timer = 0;
+
+        xor_crop_to_screen();
+        dzx0_decompress(goo_frames[goo_step], SCRATCH_BUF);
+        xor_crop_to_screen();
+
+        if (goo_step < 2)
+            sfx_play_note(20, (uint8_t)(255 - goo_step * 60));
+        else
+            sfx_play_tone(40);
+    }
+
+    return STATE_GOO_DEATH;
+}
+
+/* ------------------------------------------------------------------ */
 /* Dispatch tables                                                     */
 /* ------------------------------------------------------------------ */
 static const init_fn inits[STATE_COUNT] = {
-    state_title_init,       /* STATE_TITLE    */
-    state_intro_init,       /* STATE_INTRO    */
-    state_game_init,        /* STATE_GAME     */
-    state_summary_init,     /* STATE_SUMMARY  */
-    state_gameover_init     /* STATE_GAMEOVER */
+    state_title_init,       /* STATE_TITLE     */
+    state_intro_init,       /* STATE_INTRO     */
+    state_game_init,        /* STATE_GAME      */
+    state_summary_init,     /* STATE_SUMMARY   */
+    state_gameover_init,    /* STATE_GAMEOVER  */
+    state_goo_death_init    /* STATE_GOO_DEATH */
 };
 
 static const tick_fn ticks[STATE_COUNT] = {
-    state_title_tick,       /* STATE_TITLE    */
-    state_intro_tick,       /* STATE_INTRO    */
-    state_game_tick,        /* STATE_GAME     */
-    state_summary_tick,     /* STATE_SUMMARY  */
-    state_gameover_tick     /* STATE_GAMEOVER */
+    state_title_tick,       /* STATE_TITLE     */
+    state_intro_tick,       /* STATE_INTRO     */
+    state_game_tick,        /* STATE_GAME      */
+    state_summary_tick,     /* STATE_SUMMARY   */
+    state_gameover_tick,    /* STATE_GAMEOVER  */
+    state_goo_death_tick    /* STATE_GOO_DEATH */
 };
 
 /* ------------------------------------------------------------------ */

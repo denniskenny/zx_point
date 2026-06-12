@@ -4,9 +4,9 @@
  * Three depth palettes with animated transitions (~50 frames = 1s).
  * Attribute byte format: F_B_PPP_III (flash, bright, paper, ink).
  *
- * Depth 1: Paper=cyan(5), Ink=blue(1), Bright=0   → 0x29  border=5
- * Depth 2: Paper=blue(1), Ink=green(4), Bright=0  → 0x0C  border=1
- * Depth 3: Paper=black(0), Ink=white(7), Bright=0 → 0x07  border=0
+ * Depth 1: Paper=cyan(5), Ink=blue(1), Bright=0   → 0x29  border=1 (blue)
+ * Depth 2: Paper=blue(1), Ink=green(4), Bright=0  → 0x0C  border=4 (green)
+ * Depth 3: Paper=black(0), Ink=white(7), Bright=0 → 0x07  border=7 (white)
  */
 
 #include <string.h>
@@ -19,7 +19,7 @@
 
 /* --- Resting attributes per depth (1-indexed, [0] unused) --- */
 static const uint8_t depth_attr[4]   = { 0, 0x29, 0x0C, 0x07 };
-static const uint8_t depth_border[4] = { 0, 5,    1,    0    };
+static const uint8_t depth_border[4] = { 0, 1,    4,    7    };
 
 uint8_t current_depth = 1;
 
@@ -39,24 +39,24 @@ static void set_border(uint8_t c)
 /* Transition lookup tables                                            */
 /* ------------------------------------------------------------------ */
 
-/* Depth 1 → 2: 7-step colour cycle */
+/* Depth 1 → 2: 7-step colour cycle (border: blue→green) */
 static const uint8_t t12_attr[]   = { 0x29, 0x21, 0x19, 0x11, 0x0D, 0x0D, 0x0C };
-static const uint8_t t12_border[] = {    5,    4,    3,    2,    1,    1,    1 };
+static const uint8_t t12_border[] = {    1,    1,    1,    4,    4,    4,    4 };
 #define T12_STEPS 7
 
-/* Depth 2 → 3: 3-step */
+/* Depth 2 → 3: 3-step (border: green→white) */
 static const uint8_t t23_attr[]   = { 0x0C, 0x0F, 0x07 };
-static const uint8_t t23_border[] = {    1,    1,    0 };
+static const uint8_t t23_border[] = {    4,    6,    7 };
 #define T23_STEPS 3
 
-/* Depth 3 → 2: 3-step */
+/* Depth 3 → 2: 3-step (border: white→green) */
 static const uint8_t t32_attr[]   = { 0x07, 0x0F, 0x0C };
-static const uint8_t t32_border[] = {    0,    1,    1 };
+static const uint8_t t32_border[] = {    7,    6,    4 };
 #define T32_STEPS 3
 
-/* Depth 2 → 1: 7-step (reverse of 1→2) */
+/* Depth 2 → 1: 7-step (border: green→blue) */
 static const uint8_t t21_attr[]   = { 0x0C, 0x0D, 0x0D, 0x11, 0x19, 0x21, 0x29 };
-static const uint8_t t21_border[] = {    1,    1,    1,    2,    3,    4,    5 };
+static const uint8_t t21_border[] = {    4,    4,    4,    4,    1,    1,    1 };
 #define T21_STEPS 7
 
 /* --- Active transition state --- */

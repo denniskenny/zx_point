@@ -11,6 +11,7 @@ typedef enum {
     STATE_GAME,
     STATE_SUMMARY,
     STATE_GAMEOVER,
+    STATE_GOO_DEATH,
     STATE_COUNT
 } game_state_t;
 

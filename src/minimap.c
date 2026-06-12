@@ -31,9 +31,18 @@
 #define DEPTH_COL  (MINIMAP_COL - 1)  /* 27 */
 #define DEPTH_ROW  MINIMAP_ROW        /* 20 */
 #define DEPTH_BAR_H  MINIMAP_SIZE     /* 32 pixels tall */
-#define DEPTH_BAR_MASK  0xF0          /* 4px wide, left-aligned in byte */
+#define DEPTH_BAR_MASK  0xFF          /* 8px wide, full character */
 
 static uint8_t mm_prev_gx, mm_prev_gz, mm_prev_gy;
+
+/* Pre-computed screen offsets for depth bar: col 27, y=160..191 */
+static const uint16_t depth_scr[32] = {
+    0x109B, 0x119B, 0x129B, 0x139B, 0x149B, 0x159B, 0x169B, 0x179B,
+    0x10BB, 0x11BB, 0x12BB, 0x13BB, 0x14BB, 0x15BB, 0x16BB, 0x17BB,
+    0x10DB, 0x11DB, 0x12DB, 0x13DB, 0x14DB, 0x15DB, 0x16DB, 0x17DB,
+    0x10FB, 0x11FB, 0x12FB, 0x13FB, 0x14FB, 0x15FB, 0x16FB, 0x17FB
+};
+static uint8_t depth_prev_bar_h;
 
 /* XOR a single pixel onto the screen */
 static void xor_plot(uint8_t x, uint8_t y)
@@ -85,9 +94,16 @@ static uint8_t player_predator_overlap(void)
 
 void minimap_init(void)
 {
+    uint8_t y;
+
     mm_prev_gx = 0xFF;  /* force first draw */
     mm_prev_gz = 0xFF;
     mm_prev_gy = 0xFF;
+
+    /* Draw full depth bar (surface = 32 rows filled) */
+    for (y = 0; y < 32; y++)
+        SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
+    depth_prev_bar_h = 32;
 }
 
 void minimap_draw(void)
@@ -161,41 +177,37 @@ void minimap_draw(void)
 
 }
 
-/* Pre-computed screen offsets for depth bar: col 27, y=160..191 */
-static const uint16_t depth_scr[32] = {
-    0x109B, 0x119B, 0x129B, 0x139B, 0x149B, 0x159B, 0x169B, 0x179B,
-    0x10BB, 0x11BB, 0x12BB, 0x13BB, 0x14BB, 0x15BB, 0x16BB, 0x17BB,
-    0x10DB, 0x11DB, 0x12DB, 0x13DB, 0x14DB, 0x15DB, 0x16DB, 0x17DB,
-    0x10FB, 0x11FB, 0x12FB, 0x13FB, 0x14FB, 0x15FB, 0x16FB, 0x17FB
-};
-
 void depth_indicator_draw(void)
 {
     uint16_t depth_val;
-    uint8_t bar_h, y, empty_rows;
+    uint8_t bar_h, y, prev_empty, new_empty;
     uint8_t paper_attr;
 
-    /* depth_val: 0 at surface, increases as player descends */
     depth_val = player.sub_z + (uint16_t)CUBE_SUB_Z * player.gy;
-    paper_attr = depth_get_paper() | 0x07;  /* white ink on depth paper */
+    paper_attr = depth_get_paper() | 0x07;
 
-    /* Bar height: full (32) at surface, 1 at sea floor */
-    /* Scale factor auto-computed from CUBE_SUB_Z: 31*1024/(total_depth) */
 #define DEPTH_BAR_SCALE (31 * 1024 / (CUBE_SUB_Z * GRID_D))
     if (depth_val >= (uint16_t)CUBE_SUB_Z * GRID_D)
         bar_h = 1;
     else
         bar_h = 32 - (uint8_t)(((uint16_t)depth_val * DEPTH_BAR_SCALE) >> 10);
 
-    empty_rows = 32 - bar_h;
+    prev_empty = 32 - depth_prev_bar_h;
+    new_empty = 32 - bar_h;
 
-    /* Draw bar using pre-computed screen offsets */
-    for (y = 0; y < empty_rows; y++)
-        SCREEN[depth_scr[y]] = 0x00;
-    for (; y < 32; y++)
-        SCREEN[depth_scr[y]] = DEPTH_BAR_MASK;
+    if (bar_h != depth_prev_bar_h) {
+        if (bar_h < depth_prev_bar_h) {
+            /* Bar shrinking: XOR off exposed rows */
+            for (y = prev_empty; y < new_empty; y++)
+                SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
+        } else {
+            /* Bar growing: XOR on new rows */
+            for (y = new_empty; y < prev_empty; y++)
+                SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
+        }
+        depth_prev_bar_h = bar_h;
+    }
 
-    /* Set attributes for the 4 char rows */
     for (y = 0; y < 4; y++)
         ATTR[(DEPTH_ROW + y) * 32 + DEPTH_COL] = paper_attr;
 }
