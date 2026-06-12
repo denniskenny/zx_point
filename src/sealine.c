@@ -45,14 +45,12 @@ void sealine_init(void)
 
 void sealine_erase(void)
 {
-    uint8_t col, x;
+    uint8_t col;
     if (!sl_drawn) return;
 
     for (col = 0; col < 32; col++) {
-        if (sl_prev_y[col] < 192) {
-            x = col << 3;
-            unplot(SCREEN, x, sl_prev_y[col]);
-        }
+        if (sl_prev_y[col] < 192)
+            SCREEN[scr_off(col << 3, sl_prev_y[col])] ^= 0xFF;
         sl_prev_y[col] = 255;
     }
     sl_drawn = 0;
@@ -60,7 +58,7 @@ void sealine_erase(void)
 
 void sealine_update(uint8_t base_y)
 {
-    uint8_t col, x, idx;
+    uint8_t col, idx;
     int16_t py;
 
     sl_base_y = base_y;
@@ -74,22 +72,16 @@ void sealine_update(uint8_t base_y)
 
     sl_visible = 1;
 
-    /* Erase previous frame */
+    /* Erase previous frame, draw new sinewave */
     for (col = 0; col < 32; col++) {
-        if (sl_prev_y[col] < 192) {
-            x = col << 3;
-            unplot(SCREEN, x, sl_prev_y[col]);
-        }
-    }
+        if (sl_prev_y[col] < 192)
+            SCREEN[scr_off(col << 3, sl_prev_y[col])] ^= 0xFF;
 
-    /* Draw new sinewave with current phase */
-    for (col = 0; col < 32; col++) {
         idx = (col + sl_phase) & (SINE_LEN - 1);
         py = (int16_t)base_y + sine_tab[idx];
 
-        x = col << 3;
         if (py >= 0 && py < 192) {
-            plot(SCREEN, x, (uint8_t)py);
+            SCREEN[scr_off(col << 3, (uint8_t)py)] ^= 0xFF;
             sl_prev_y[col] = (uint8_t)py;
         } else {
             sl_prev_y[col] = 255;
