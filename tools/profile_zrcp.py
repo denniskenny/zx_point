@@ -105,6 +105,68 @@ class ZRCPConnection:
                 break
         return data.decode("utf-8", errors="replace")
 
+    def read_memory(self, addr, length):
+        """Read memory as list of ints."""
+        resp = self.cmd(f"read-memory {addr} {length}")
+        hex_str = resp.strip().split("\n")[0].strip()
+        hex_str = re.sub(r"command[>@].*", "", hex_str).strip()
+        return [int(hex_str[i:i+2], 16) for i in range(0, len(hex_str), 2)
+                if i+2 <= len(hex_str) and all(c in '0123456789abcdefABCDEF' for c in hex_str[i:i+2])]
+
+    def dump_screen_png(self, path):
+        """Read ZX Spectrum screen RAM and save as PNG."""
+        from PIL import Image
+        PALETTE = [
+            (0,0,0), (0,0,0xCD), (0xCD,0,0), (0xCD,0,0xCD),
+            (0,0xCD,0), (0,0xCD,0xCD), (0xCD,0xCD,0), (0xCD,0xCD,0xCD),
+            (0,0,0), (0,0,0xFF), (0xFF,0,0), (0xFF,0,0xFF),
+            (0,0xFF,0), (0,0xFF,0xFF), (0xFF,0xFF,0), (0xFF,0xFF,0xFF),
+        ]
+        pixels = self.read_memory(0x4000, 6144)
+        attrs = self.read_memory(0x5800, 768)
+        img = Image.new('RGB', (256, 192))
+        for cy in range(24):
+            for cx in range(32):
+                attr = attrs[cy * 32 + cx]
+                ink = attr & 0x07
+                paper = (attr >> 3) & 0x07
+                bright = (attr >> 6) & 0x01
+                if bright:
+                    ink += 8
+                    paper += 8
+                for row in range(8):
+                    y = cy * 8 + row
+                    third = y >> 6
+                    char_row = (y >> 3) & 0x07
+                    pixel_row = y & 0x07
+                    addr = (third << 11) | (pixel_row << 8) | (char_row << 5) | cx
+                    byte = pixels[addr]
+                    for bit in range(8):
+                        x = cx * 8 + bit
+                        color = PALETTE[ink] if byte & (0x80 >> bit) else PALETTE[paper]
+                        img.putpixel((x, y), color)
+        img.save(path)
+        print(f"Screen saved to {path}")
+
+    def dump_attr_map(self):
+        """Print attribute map showing ink/paper for each char cell."""
+        attrs = self.read_memory(0x5800, 768)
+        COLOR_NAMES = ['K', 'B', 'R', 'M', 'G', 'C', 'Y', 'W']
+        print("\nAttribute map (I=ink, P=paper, *=bright):")
+        print("     " + "".join(f"{c:>2}" for c in range(32)))
+        for row in range(24):
+            line = f"  {row:2d} "
+            for col in range(32):
+                attr = attrs[row * 32 + col]
+                ink = attr & 7
+                paper = (attr >> 3) & 7
+                bright = "!" if attr & 0x40 else " "
+                if ink == paper:
+                    line += ".."
+                else:
+                    line += COLOR_NAMES[ink] + COLOR_NAMES[paper]
+            print(line)
+
     def close(self):
         if self.sock:
             try:
@@ -116,17 +178,23 @@ class ZRCPConnection:
 
 # Waypoints in execution order within state_game_tick.
 WAYPOINTS = [
+    "_vsync_wait",
+    "_predators_erase",
+    "_update_and_draw_bubbles",
+    "_predators_draw",
+    "_treasure_render",
+    "_sprites_player_draw",
+    "_sprites_player_set_colour",
+    "_hud_draw",
+    "_minimap_draw",
+    "_depth_indicator_draw",
+    "_read_keys",
     "_player_update",
     "_predators_update",
     "_depth_transition_tick",
     "_treasure_check_collection",
-    "_vsync_wait",
-    "_predators_render",
-    "_update_and_draw_stars",
-    "_sprites_player_draw",
-    "_hud_draw",
-    "_minimap_draw",
-    "_depth_indicator_draw",
+    "_sonar_update",
+    "_beep_tick",
 ]
 
 TSTATES_PER_FRAME = 69888
@@ -135,9 +203,13 @@ TSTATES_PER_FRAME = 69888
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--frames", type=int, default=3)
-    parser.add_argument("--mapfile", default="starfield.map")
-    parser.add_argument("--tap", default="starfield.tap")
+    parser.add_argument("--mapfile", default="downship.map")
+    parser.add_argument("--tap", default="downship.tap")
     parser.add_argument("--settle", type=float, default=8.0)
+    parser.add_argument("--motion", default=None,
+                        help="Kempston joystick hex byte (R=01 L=02 D=04 U=08 Fire=10)")
+    parser.add_argument("--screenshot", default=None,
+                        help="Save screen to file before profiling (bmp/scr/pbm)")
     args = parser.parse_args()
 
     # Use absolute paths since ZEsarUX changes cwd
@@ -186,6 +258,28 @@ def main():
     print(f"Connected. Settling {args.settle}s...")
     z.cmd("run")
     time.sleep(args.settle)
+
+    # Press SPACE to get past title screen, then intro screen
+    # send-keys-string sends chars with given ms between presses
+    print("Pressing key to pass title screen...")
+    z.cmd("send-keys-string 200 a")
+    time.sleep(2.0)
+    print("Pressing key to pass intro screen...")
+    z.cmd("send-keys-string 200 a")
+    time.sleep(3.0)
+    print("Should be in game loop now...")
+
+    if args.motion:
+        joy_hex = args.motion.zfill(2)
+        print(f"Holding Kempston joystick 0x{joy_hex}...")
+        z.cmd(f"set-ui-io-ports ffffffffffffffff{joy_hex}")
+        time.sleep(5.0)
+        print("Diver has been moving for 5s")
+
+    if args.screenshot:
+        scr_path = os.path.abspath(args.screenshot)
+        z.dump_screen_png(scr_path)
+        z.dump_attr_map()
 
     # Pause
     z.cmd("enter-cpu-step")
@@ -249,6 +343,8 @@ def main():
                       f"({100.0 * t / TSTATES_PER_FRAME:.1f}% of budget)")
 
     # Cleanup
+    if args.motion:
+        z.cmd("set-ui-io-ports ffffffffffffffff00")
     print("\nShutting down...")
     z.close()
     emu.terminate()

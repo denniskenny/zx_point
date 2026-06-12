@@ -16,7 +16,7 @@
 typedef struct {
     int16_t x, y, z;
     uint8_t psx, psy;   /* previous screen coords (psy=255 = not visible) */
-    uint8_t pclose;      /* previous frame was 2x2 */
+    uint8_t pclose;      /* previous frame was 4x4 bubble */
 } bubble_t;
 
 #define PSY_NONE 255
@@ -171,6 +171,8 @@ static uint8_t sf_vx, sf_vy, sf_vz;
 static uint8_t sf_count;
 static uint16_t sf_recip;
 static uint8_t sf_sx;
+static uint8_t sf_phase;     /* 0 or 1: which half of bubbles to project this frame */
+static uint8_t sf_parity;    /* per-bubble: toggles 0/1 each iteration */
 
 /* ------------------------------------------------------------------ */
 /* Update positions and draw all active bubbles for one frame.         */
@@ -198,91 +200,50 @@ void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
     ld  a, (hl)
     ld  (_sf_vz), a
 
+    ;; Double velocities: each bubble updates position at 25fps (every other
+    ;; frame), so 2x displacement per update = same visual speed as 50fps/1x.
+    ld  a, (_sf_vx)
+    add a, a
+    ld  (_sf_vx), a
+    ld  a, (_sf_vy)
+    add a, a
+    ld  (_sf_vy), a
+    ld  a, (_sf_vz)
+    add a, a
+    ld  (_sf_vz), a
+
     ;; ---- Loop setup ----
     ld  a, (_bubble_count)
     or  a
     ret z
 
+    ;; Toggle frame phase (0→1→0→1...)
+    ld  a, (_sf_phase)
+    xor 1
+    ld  (_sf_phase), a
+    ld  (_sf_parity), a         ; first bubble uses this phase value
+
     ;; Save IX (callee-saved in SDCC convention)
     push ix
+    ld  a, (_bubble_count)
     ld  (_sf_count), a
     ld  ix, _bubbles
 
     ;; ================================================================
     ;; Main loop — one iteration per bubble
     ;; IX points to current bubble_t throughout
+    ;; Split-frame: only project+draw bubbles whose parity matches sf_phase
     ;; ================================================================
 _sf_loop:
 
-    ;; ======== ERASE previous screen position ========
-    ld  a, (ix+7)
-    inc a                       ; psy was 255 (PSY_NONE)? → A wraps to 0
-    jr  z, _sf_no_erase
-    ld  a, (ix+8)               ; pclose
-    or  a
-    jr  nz, _sf_erase_bubble
-
-    ;; Far bubble: single pixel
-    ld  d, (ix+7)
-    ld  e, (ix+6)
-    call _sf_unplot
-    jr  _sf_no_erase
-
-_sf_erase_bubble:
-    ;; 4x4 bubble: .##. / #..# / #..# / .##.
-    ld  d, (ix+7)               ; row 0
-    ld  e, (ix+6)
-    inc e
-    call _sf_unplot             ; (x+1, y)
-    ld  d, (ix+7)
-    ld  e, (ix+6)
-    inc e
-    inc e
-    call _sf_unplot             ; (x+2, y)
-
-    ld  d, (ix+7)               ; row 1
-    inc d
-    ld  e, (ix+6)
-    call _sf_unplot             ; (x, y+1)
-    ld  d, (ix+7)
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    inc e
-    call _sf_unplot             ; (x+3, y+1)
-
-    ld  d, (ix+7)               ; row 2
-    inc d
-    inc d
-    ld  e, (ix+6)
-    call _sf_unplot             ; (x, y+2)
-    ld  d, (ix+7)
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    inc e
-    call _sf_unplot             ; (x+3, y+2)
-
-    ld  d, (ix+7)               ; row 3
-    inc d
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    call _sf_unplot             ; (x+1, y+3)
-    ld  d, (ix+7)
-    inc d
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    call _sf_unplot             ; (x+2, y+3)
-
-_sf_no_erase:
+    ;; ======== SPLIT-FRAME CHECK (first — off-phase bubbles skip entirely) ========
+    ld  a, (_sf_parity)
+    xor 1
+    ld  (_sf_parity), a
+    ld  b, a
+    ld  a, (_sf_phase)
+    cp  b
+    jp  nz, _sf_next
 
     ;; ======== UPDATE POSITION ========
 
@@ -385,9 +346,52 @@ _sf_z_respawn:
 
 _sf_z_ok:
 
+    ;; ======== ERASE previous screen position ========
+    ld  a, (ix+7)
+    inc a                       ; psy was 255 (PSY_NONE)? → A wraps to 0
+    jr  z, _sf_no_erase
+    ld  a, (ix+8)               ; pclose
+    or  a
+    jr  nz, _sf_erase_bubble
+
+    ;; Far bubble: single pixel
+    ld  d, (ix+7)
+    ld  e, (ix+6)
+    call _sf_unplot
+    jr  _sf_no_erase
+
+_sf_erase_bubble:
+    ;; 4x4 bubble erase
+    ld  e, (ix+6)
+    ld  d, (ix+7)
+    call _sf_erase_bubble_fn
+
+_sf_no_erase:
+
     ;; ======== PROJECTION ========
+
+    ;; Pre-screen: if |x| > z or |y| > z, bubble is off-screen.
+    ;; Avoids the expensive multiply for ~40-60% of bubbles.
+    ld  c, (ix+4)               ; C = z (1-255)
+
+    ld  a, (ix+0)               ; x low byte (signed)
+    or  a
+    jp  p, _sf_psx_pos
+    neg
+_sf_psx_pos:
+    cp  c
+    jp  nc, _sf_offscr          ; |x| >= z → off-screen
+
+    ld  a, (ix+2)               ; y low byte (signed)
+    or  a
+    jp  p, _sf_psy_pos
+    neg
+_sf_psy_pos:
+    cp  c
+    jp  nc, _sf_offscr          ; |y| >= z → off-screen
+
     ;; Look up recip_z[z]
-    ld  l, (ix+4)               ; z (1-255)
+    ld  l, c
     ld  h, 0
     add hl, hl                  ; z * 2 (word-sized entries)
     ld  de, _recip_z
@@ -437,58 +441,9 @@ _sf_z_ok:
 
     ld  (ix+8), 1               ; pclose = 1
 
-    ;; 4x4 bubble: .##. / #..# / #..# / .##.
-    ld  d, (ix+7)               ; row 0
-    ld  e, (ix+6)
-    inc e
-    call _sf_plot               ; (sx+1, sy)
-    ld  d, (ix+7)
-    ld  e, (ix+6)
-    inc e
-    inc e
-    call _sf_plot               ; (sx+2, sy)
-
-    ld  d, (ix+7)               ; row 1
-    inc d
-    ld  e, (ix+6)
-    call _sf_plot               ; (sx, sy+1)
-    ld  d, (ix+7)
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    inc e
-    call _sf_plot               ; (sx+3, sy+1)
-
-    ld  d, (ix+7)               ; row 2
-    inc d
-    inc d
-    ld  e, (ix+6)
-    call _sf_plot               ; (sx, sy+2)
-    ld  d, (ix+7)
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    inc e
-    call _sf_plot               ; (sx+3, sy+2)
-
-    ld  d, (ix+7)               ; row 3
-    inc d
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    call _sf_plot               ; (sx+1, sy+3)
-    ld  d, (ix+7)
-    inc d
-    inc d
-    inc d
-    ld  e, (ix+6)
-    inc e
-    inc e
-    call _sf_plot               ; (sx+2, sy+3)
+    ;; 4x4 bubble plot — row-at-a-time with precomputed masks
+    ;; E = sx, D = sy (already loaded above)
+    call _sf_plot_bubble_fn
 
     jr  _sf_next
 
@@ -613,6 +568,319 @@ _sf_unplot:
     ret
 
     ;; ================================================================
+    ;; Bubble row mask tables.
+    ;; Pattern:  .##. / #..# / #..# / .##.
+    ;; Indexed by (x & 7).  Two bytes per entry: [left_byte, right_byte].
+    ;; Bits are MSB-first (bit 7 = leftmost pixel).
+    ;; ================================================================
+
+    ;; Row A (.##.):  pixels at x+1, x+2
+_bub_mask_a:
+    .db 0x60, 0x00   ;; x&7=0
+    .db 0x30, 0x00   ;; x&7=1
+    .db 0x18, 0x00   ;; x&7=2
+    .db 0x0C, 0x00   ;; x&7=3
+    .db 0x06, 0x00   ;; x&7=4
+    .db 0x03, 0x00   ;; x&7=5
+    .db 0x01, 0x80   ;; x&7=6
+    .db 0x00, 0xC0   ;; x&7=7
+
+    ;; Row B (#..#):  pixels at x+0, x+3
+_bub_mask_b:
+    .db 0x90, 0x00   ;; x&7=0
+    .db 0x48, 0x00   ;; x&7=1
+    .db 0x24, 0x00   ;; x&7=2
+    .db 0x12, 0x00   ;; x&7=3
+    .db 0x09, 0x00   ;; x&7=4
+    .db 0x04, 0x80   ;; x&7=5
+    .db 0x02, 0x40   ;; x&7=6
+    .db 0x01, 0x20   ;; x&7=7
+
+_sf_bub_off: .ds 1   ;; scratch: (x & 7) * 2
+
+    ;; ================================================================
+    ;; _sf_scr_addr — compute screen address for pixel (E, D)
+    ;; Input:  E = x, D = y
+    ;; Output: HL = screen address
+    ;; Destroys: A, B
+    ;; ================================================================
+_sf_scr_addr:
+    ld  a, d
+    and 0xC0
+    rrca
+    rrca
+    rrca
+    ld  b, a
+    ld  a, d
+    and 0x07
+    or  b
+    or  0x40
+    ld  h, a
+    ld  a, d
+    and 0x38
+    rlca
+    rlca
+    ld  b, a
+    ld  a, e
+    rrca
+    rrca
+    rrca
+    and 0x1F
+    or  b
+    ld  l, a
+    ret
+
+    ;; ================================================================
+    ;; _sf_next_row — advance HL to the next pixel row
+    ;; ================================================================
+_sf_next_row:
+    inc h
+    ld  a, h
+    and 0x07
+    ret nz
+    ld  a, h
+    sub 8
+    ld  h, a
+    ld  a, l
+    add a, 32
+    ld  l, a
+    ret nc
+    ld  a, h
+    add a, 8
+    ld  h, a
+    ret
+
+    ;; ================================================================
+    ;; _sf_plot_bubble_fn — draw 4x4 bubble at (E=x, D=y)
+    ;; Input:  E = x, D = y
+    ;; Destroys: A, B, C, D, E, H, L.  Preserves: IX.
+    ;; ================================================================
+_sf_plot_bubble_fn:
+    ld  a, e
+    and 0x07
+    add a, a
+    ld  (_sf_bub_off), a
+
+    call _sf_scr_addr           ; HL = screen addr for (x, y)
+
+    ;; --- Row 0: type A (.##.) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_a
+    add a, e
+    ld  e, a
+    jr  nc, _pb_r0n
+    inc d
+_pb_r0n:
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r0r
+    or  (hl)
+    ld  (hl), a
+_pb_r0r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r0d
+    inc l
+    or  (hl)
+    ld  (hl), a
+    dec l
+_pb_r0d:
+    call _sf_next_row
+
+    ;; --- Row 1: type B (#..#) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_b
+    add a, e
+    ld  e, a
+    jr  nc, _pb_r1n
+    inc d
+_pb_r1n:
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r1r
+    or  (hl)
+    ld  (hl), a
+_pb_r1r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r1d
+    inc l
+    or  (hl)
+    ld  (hl), a
+    dec l
+_pb_r1d:
+    call _sf_next_row
+
+    ;; --- Row 2: type B (#..#) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_b
+    add a, e
+    ld  e, a
+    jr  nc, _pb_r2n
+    inc d
+_pb_r2n:
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r2r
+    or  (hl)
+    ld  (hl), a
+_pb_r2r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r2d
+    inc l
+    or  (hl)
+    ld  (hl), a
+    dec l
+_pb_r2d:
+    call _sf_next_row
+
+    ;; --- Row 3: type A (.##.) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_a
+    add a, e
+    ld  e, a
+    jr  nc, _pb_r3n
+    inc d
+_pb_r3n:
+    ld  a, (de)
+    or  a
+    jr  z, _pb_r3r
+    or  (hl)
+    ld  (hl), a
+_pb_r3r:
+    inc de
+    ld  a, (de)
+    or  a
+    ret z
+    inc l
+    or  (hl)
+    ld  (hl), a
+    ret
+
+    ;; ================================================================
+    ;; _sf_erase_bubble_fn — erase 4x4 bubble at (E=x, D=y)
+    ;; Input:  E = x, D = y
+    ;; Destroys: A, B, C, D, E, H, L.  Preserves: IX.
+    ;; ================================================================
+_sf_erase_bubble_fn:
+    ld  a, e
+    and 0x07
+    add a, a
+    ld  (_sf_bub_off), a
+
+    call _sf_scr_addr
+
+    ;; --- Row 0: type A (.##.) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_a
+    add a, e
+    ld  e, a
+    jr  nc, _eb_r0n
+    inc d
+_eb_r0n:
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r0r
+    cpl
+    and (hl)
+    ld  (hl), a
+_eb_r0r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r0d
+    inc l
+    cpl
+    and (hl)
+    ld  (hl), a
+    dec l
+_eb_r0d:
+    call _sf_next_row
+
+    ;; --- Row 1: type B (#..#) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_b
+    add a, e
+    ld  e, a
+    jr  nc, _eb_r1n
+    inc d
+_eb_r1n:
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r1r
+    cpl
+    and (hl)
+    ld  (hl), a
+_eb_r1r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r1d
+    inc l
+    cpl
+    and (hl)
+    ld  (hl), a
+    dec l
+_eb_r1d:
+    call _sf_next_row
+
+    ;; --- Row 2: type B (#..#) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_b
+    add a, e
+    ld  e, a
+    jr  nc, _eb_r2n
+    inc d
+_eb_r2n:
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r2r
+    cpl
+    and (hl)
+    ld  (hl), a
+_eb_r2r:
+    inc de
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r2d
+    inc l
+    cpl
+    and (hl)
+    ld  (hl), a
+    dec l
+_eb_r2d:
+    call _sf_next_row
+
+    ;; --- Row 3: type A (.##.) ---
+    ld  a, (_sf_bub_off)
+    ld  de, _bub_mask_a
+    add a, e
+    ld  e, a
+    jr  nc, _eb_r3n
+    inc d
+_eb_r3n:
+    ld  a, (de)
+    or  a
+    jr  z, _eb_r3r
+    cpl
+    and (hl)
+    ld  (hl), a
+_eb_r3r:
+    inc de
+    ld  a, (de)
+    or  a
+    ret z
+    inc l
+    cpl
+    and (hl)
+    ld  (hl), a
+    ret
+
+    ;; ================================================================
     ;; _sf_proj — signed 8-bit x unsigned 16-bit perspective projection
     ;;
     ;; Computes: (A * recip) >> 8   where A is signed [-128..127]
@@ -632,16 +900,16 @@ _sf_proj:
     jp  p, _sf_pj_pos
     neg                         ; A = |val|
 _sf_pj_pos:
-    push af                     ; save |val|
     ld  hl, (_sf_recip)
-    ex  de, hl                  ; DE = recip (E=lo, D=hi)
-    pop af                      ; A = |val|
+    ex  de, hl                  ; DE = recip (E=lo, D=hi), A = |val| preserved
+    inc d
+    dec d                       ; Z iff recip high byte == 0
+    jr  z, _sf_proj_8
 
-    ;; 8x16 multiply: A x DE → B:HL (24-bit unsigned)
+    ;; 8x16 multiply: A x DE -> B:HL (24-bit unsigned)
     ld  b, 0
     ld  hl, 0
 
-    ;; Bit 7 (MSB — no preceding shift)
     add a, a
     jr  nc, _sf_pj_s6
     add hl, de
@@ -704,11 +972,57 @@ _sf_pj_s0:
     jr  nc, _sf_pj_md
     inc b
 _sf_pj_md:
-    ;; B:H:L = |val| x recip.  We want bits 8-23 = B:H.
     ld  l, h
     ld  h, b
+    jr  _sf_pj_sign
 
-    ;; Negate if original value was negative
+    ;; ---- Fast 8x8 path (recip fits in 8 bits, D==0) ----
+_sf_proj_8:
+    ld  h, d                    ; 0
+    ld  l, d                    ; 0
+    add a, a
+    jr  nc, _p8_6
+    ld  l, e
+_p8_6:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_5
+    add hl, de
+_p8_5:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_4
+    add hl, de
+_p8_4:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_3
+    add hl, de
+_p8_3:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_2
+    add hl, de
+_p8_2:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_1
+    add hl, de
+_p8_1:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_0
+    add hl, de
+_p8_0:
+    add hl, hl
+    add a, a
+    jr  nc, _p8_dn
+    add hl, de
+_p8_dn:
+    ld  l, h
+    ld  h, d                    ; D still 0
+
+_sf_pj_sign:
     bit 7, c
     ret z
     ld  a, l

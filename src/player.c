@@ -19,7 +19,7 @@ void player_init(void)
     player.gy = 0;                  /* depth 1 (shallowest) */
     player.sub_x = CUBE_SUB_XY / 2;
     player.sub_y = CUBE_SUB_XY / 2;
-    player.sub_z = 0;              /* top of sub-cube (surface) */
+    player.sub_z = CUBE_SUB_Z - 1; /* bottom of sub-cube (buoyancy floats up) */
     player.health = HEALTH_MAX;
     player.oxygen = OXYGEN_MAX;
     player.invuln_timer = 0;
@@ -45,7 +45,7 @@ uint8_t player_update(int8_t vx, int8_t vy, int8_t vz)
         else { player.sub_x = 0; player.at_bound_x = 1; }
     }
 
-    /* --- Forward/backward movement (W/S via vz → grid Z axis) --- */
+    /* --- Forward/backward movement (Q/A via vz → grid Z axis) --- */
     player.sub_y -= vz;
     if (player.sub_y >= CUBE_SUB_XY) {
         player.sub_y -= CUBE_SUB_XY;
@@ -57,8 +57,8 @@ uint8_t player_update(int8_t vx, int8_t vy, int8_t vz)
         else { player.sub_y = 0; player.at_bound_z = 1; }
     }
 
-    /* --- Depth movement (Q=ascend, A=descend via vy) --- */
-    /* A key -> vy negative -> sub_z increases (diving) */
+    /* --- Depth movement (Z=descend, buoyancy=ascend via vy) --- */
+    /* Z key -> vy negative -> sub_z increases (diving) */
     player.sub_z -= vy;
     if (player.sub_z >= CUBE_SUB_Z) {
         player.sub_z -= CUBE_SUB_Z;

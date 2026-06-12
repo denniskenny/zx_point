@@ -14,19 +14,21 @@
 #define ATTR_SZ  768
 
 /* --- Keyboard half-row port addresses --- */
-/* Q=Up  W=Forward(into screen) */
-#define KEY_QWERT  0xFBFE   /* Q=bit0  W=bit1 */
-/* A=Down  S=Backward(out of screen) */
-#define KEY_ASDFG  0xFDFE   /* A=bit0  S=bit1 */
+/* Q=Forward(into screen) */
+#define KEY_QWERT  0xFBFE   /* Q=bit0 */
+/* A=Backward(out of screen) */
+#define KEY_ASDFG  0xFDFE   /* A=bit0 */
 /* P=Right  O=Left */
 #define KEY_POIUY  0xDFFE   /* P=bit0  O=bit1 */
+/* Z=Descend */
+#define KEY_SHZXCV 0xFEFE   /* CapsShift=bit0  Z=bit1 */
 
 /* --- Kempston joystick --- */
-/* R=Right  L=Left  D=Down  U=Up  F1=Forward  F2=Backward */
-#define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 F1=4 F2=5 */
+/* R=Right  L=Left  U=Forward  D=Backward  Fire=Descend */
+#define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 Fire=4 */
 
 /* --- Bubblefield parameters --- */
-#define NUM_BUBBLES  50
+#define NUM_BUBBLES  38
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -44,7 +46,7 @@
 #define GRID_H  32
 
 /* --- Depth-level bubble counts --- */
-#define BUBBLES_DEPTH1  50
+#define BUBBLES_DEPTH1  38
 #define BUBBLES_DEPTH2  25
 #define BUBBLES_DEPTH3  8
 

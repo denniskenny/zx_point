@@ -165,11 +165,11 @@ static game_state_t state_intro_init(void)
     print_at(2, 6, name);
 
     /* Objectives */
-    print_at(2, 10, "Treasures: ");
-    print_num(13, 10, level.treasure_count);
+    print_at(2, 10, "Relics to recover: ");
+    print_num(21, 10, level.arch_count);
 
-    print_at(2, 12, "Relics to recover: ");
-    print_num(21, 12, level.arch_count);
+    print_at(2, 12, "Salvage on sonar: ");
+    print_num(20, 12, level.treasure_count - level.arch_count);
 
     if (pred_ray_count) {
         print_at(2, 14, "Rays: ");
@@ -208,10 +208,10 @@ static game_state_t state_game_init(void)
 {
     vx = 0;
     vy = 0;
-    vz = -2;   /* gentle forward drift */
+    vz = 0;
     sv_x = 0; sv_y = 0; sv_z = 0;
     dt_x = 0; dt_y = 0; dt_z = 0;
-    was_edge_x = 1; was_edge_y = 1; was_edge_z = 0;
+    was_edge_x = 0; was_edge_y = 0; was_edge_z = 0;
     bubble_vx = 0; bubble_vy = 0; bubble_vz = 0;
     frame = 0;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
@@ -243,7 +243,7 @@ static game_state_t state_game_init(void)
 static game_state_t state_game_tick(void)
 {
     uint8_t k, joy;
-    uint8_t kq, kw, ka, ks, ko, kp;
+    uint8_t kq, ka, ko, kp, kz;
     uint8_t depth_changed;
     uint8_t damage;
 
@@ -289,38 +289,40 @@ static game_state_t state_game_tick(void)
 
     /* --- Sample keyboard and adjust velocity --- */
     k  = read_keys(KEY_QWERT);
-    kq = !(k & 0x01);
-    kw = !(k & 0x02);
+    kq = !(k & 0x01);             /* Q = forward */
 
     k  = read_keys(KEY_ASDFG);
-    ka = !(k & 0x01);
-    ks = !(k & 0x02);
+    ka = !(k & 0x01);             /* A = backward */
 
     k  = read_keys(KEY_POIUY);
-    kp = !(k & 0x01);
-    ko = !(k & 0x02);
+    kp = !(k & 0x01);             /* P = right */
+    ko = !(k & 0x02);             /* O = left */
+
+    k  = read_keys(KEY_SHZXCV);
+    kz = !(k & 0x02);             /* Z = descend */
 
     if (has_kempston) {
         joy = read_keys(KEMP_PORT);
-        if (joy & 0x08) kq = 1;
-        if (joy & 0x04) ka = 1;
-        if (joy & 0x02) ko = 1;
-        if (joy & 0x01) kp = 1;
-        if (joy & 0x10) kw = 1;
-        if (joy & 0x20) ks = 1;
+        if (joy & 0x08) kq = 1;   /* up = forward */
+        if (joy & 0x04) ka = 1;   /* down = backward */
+        if (joy & 0x02) ko = 1;   /* left */
+        if (joy & 0x01) kp = 1;   /* right */
+        if (joy & 0x10) kz = 1;   /* fire = descend */
     }
 
-    if (kq && vy <  SPEED) vy++;
-    else if (ka && vy > -SPEED) vy--;
-    else if ((frame & 7) == 0) { if (vy > 0) vy--; else if (vy < 0) vy++; }
-
+    /* Horizontal (O/P) — friction model */
     if (ko && vx <  SPEED) vx++;
     else if (kp && vx > -SPEED) vx--;
     else if ((frame & 7) == 0) { if (vx > 0) vx--; else if (vx < 0) vx++; }
 
-    if (kw && vz > -SPEED) vz--;
-    else if (ks && vz <  SPEED) vz++;
+    /* Forward/backward (Q/A) — friction model */
+    if (kq && vz > -SPEED) vz--;
+    else if (ka && vz <  SPEED) vz++;
     else if ((frame & 7) == 0) { if (vz > 0) vz--; else if (vz < 0) vz++; }
+
+    /* Vertical (Z = descend) — buoyancy model: diver floats up by default */
+    if (kz && vy > -SPEED) vy--;
+    else if (vy < SPEED) vy++;
 
     /* --- Apply player speed divisor (fractional accumulator) --- */
     {
@@ -354,13 +356,10 @@ static game_state_t state_game_tick(void)
             if (sv_x > 0) sv_x--; else sv_x++;
         }
 
-        if (kq | ka) { sv_y = raw_vy; dt_y = BUBBLE_DRIFT_FRAMES; }
-        else if (sv_y != 0 && --dt_y == 0) {
-            dt_y = BUBBLE_DRIFT_FRAMES;
-            if (sv_y > 0) sv_y--; else sv_y++;
-        }
+        /* Vertical: always tracks velocity (buoyancy keeps it moving) */
+        sv_y = raw_vy;
 
-        if (kw | ks) { sv_z = raw_vz; dt_z = BUBBLE_DRIFT_FRAMES; }
+        if (kq | ka) { sv_z = raw_vz; dt_z = BUBBLE_DRIFT_FRAMES; }
         else if (sv_z != 0 && --dt_z == 0) {
             dt_z = BUBBLE_DRIFT_FRAMES;
             if (sv_z > 0) sv_z--; else sv_z++;
@@ -541,18 +540,18 @@ static game_state_t state_summary_init(void)
     print_at(2, 7, name);
 
     /* Treasure stats */
-    print_at(2, 10, "Treasures found: ");
-    print_num(19, 10, level.collected_count);
-    print_at(21, 10, "/");
-    print_num(22, 10, level.treasure_count);
+    print_at(2, 10, "Relics recovered: ");
+    print_num(20, 10, level.arch_collected);
+    print_at(22, 10, "/");
+    print_num(23, 10, level.arch_count);
 
-    print_at(2, 12, "Relics recovered: ");
-    print_num(20, 12, level.arch_collected);
-    print_at(22, 12, "/");
-    print_num(23, 12, level.arch_count);
+    print_at(2, 12, "Salvage collected: ");
+    print_num(21, 12, level.collected_count - level.arch_collected);
+    print_at(23, 12, "/");
+    print_num(24, 12, level.treasure_count - level.arch_count);
 
-    print_at(2, 14, "Total treasures: ");
-    print_num(19, 14, level.total_collected);
+    print_at(2, 14, "Total this dive: ");
+    print_num(19, 14, level.collected_count);
 
     if (game_over_flag) {
         print_at(6, 18, "Press any key");

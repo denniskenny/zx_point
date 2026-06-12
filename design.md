@@ -19,18 +19,21 @@ The blue and red bars should leave enough room for the 32x32 minimap in the bott
 
 ## Controls
 
-The player controls the diver with either keys or joystick, moving the player left, right, forward, and backward. Two additional buttons allow the player to move into and out of the screen, allowing for full navigation of the 3d space.
+The player controls the diver with either keys or joystick, moving the player left, right, forward, and backward. The fire button causes the player to descend, allowing for full navigation of the 3d space.
 
 The controls are
 
-Q / Joystick Up     - Move Up
-A / Joystick Down   - Move Down
+Q / Joystick Up     - Move Forward (into screen)
+A / Joystick Down   - Move Backward (out of screen)
 O / Joystick Left   - Move Left
 P / Joystick Right  - Move Right
-W / Fire Button 1   - Move Forward (into screen)
-S / Fire Button 2   - Move Backward (out of screen)
+Z / Fire Button 1   - Descend
+
+By default the diver will gradually increase velocity to a maximum speed vertically. This can be countered by pressing Descend. To avoid ending the game instantly, the diver must begin the game at the bottom of the first subcube.
 
 Movement has inertia: holding a key accelerates the diver up to maximum speed; releasing the key causes the diver to decelerate gradually to a stop (friction applied every 8th frame). The starfield scrolls to match the diver's velocity, creating the illusion of movement. When the diver reaches a world boundary, the starfield velocity reverses on that axis, creating a bounce effect that decays with the normal friction.
+
+The fire button / Z control behaves differently; releasing this will cause the diver to slow down and then begin to float upwards. 
 
 ## Gameplay
 The game begins with a short animation that shows the player descending from their ship and. their oxygen gauge filling up.
@@ -226,7 +229,7 @@ When the player moves, the player sprite stays in the same position and the star
 The 3d space occupies the top 160 pixel rows of the screen (char rows 0-19). The bottom 32 rows (char rows 20-23, pixels y 160-191) are reserved for the HUD gauges and minimap. The starfield engine viewport height is capped at 160 so no per-pixel bounds testing is needed for the HUD/minimap region.
 
 ### Game Space
-The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre cube.
+The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre subcube, grid position (16,16). To avoid ending the game instantly, the diver must begin the game at the bottom of the this subcube.
 
 Each minimap cell (8 cubes) should take about 5 seconds to traverse horizontally. It should take approximately 6 seconds to descend one depth level (CUBE_SUB_Z=300). The player always starts at the centre of the grid in the top layer (grid position 16,16). Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
 
