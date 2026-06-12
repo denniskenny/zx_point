@@ -32,9 +32,6 @@ static uint8_t sl_base_y;       /* current base y */
 static uint8_t sl_visible;      /* 1 if line is on screen */
 static uint8_t sl_drawn;        /* 1 if pixels are on screen to erase */
 
-/* Default sea line position: 2 char rows above screen centre */
-#define SEALINE_DEFAULT_Y  (96 - 16)
-
 void sealine_init(void)
 {
     uint8_t i;
@@ -132,44 +129,36 @@ void seafloor_init(void)
     sf_drawn = 0;
 }
 
+static void seafloor_fill_row(uint8_t y, uint8_t val)
+{
+    uint16_t off = scr_off(0, y);
+    uint8_t col;
+    for (col = 0; col < 32; col++)
+        SCREEN[off + col] = val;
+}
+
 void seafloor_erase(void)
 {
-    uint8_t x;
     if (!sf_drawn) return;
-
-    /* Erase the full horizontal line */
-    for (x = 0; x < 255; x++)
-        unplot(SCREEN, x, sf_y);
-    unplot(SCREEN, 255, sf_y);
+    seafloor_fill_row(sf_y, 0x00);
     sf_drawn = 0;
 }
 
 void seafloor_update(uint8_t y)
 {
-    uint8_t x;
-
-    /* Erase old line if y changed or was previously drawn */
-    if (sf_drawn && sf_y != y) {
-        for (x = 0; x < 255; x++)
-            unplot(SCREEN, x, sf_y);
-        unplot(SCREEN, 255, sf_y);
-    }
+    if (sf_drawn && sf_y != y)
+        seafloor_fill_row(sf_y, 0x00);
 
     sf_y = y;
 
-    if (y >= 192) {
+    if (y >= VIEW_H) {
         sf_visible = 0;
         sf_drawn = 0;
         return;
     }
 
     sf_visible = 1;
-
-    /* Draw a solid horizontal line */
-    for (x = 0; x < 255; x++)
-        plot(SCREEN, x, y);
-    plot(SCREEN, 255, y);
-
+    seafloor_fill_row(y, 0xFF);
     sf_drawn = 1;
 }
 

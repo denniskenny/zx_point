@@ -173,6 +173,8 @@ static uint16_t sf_recip;
 static uint8_t sf_sx;
 static uint8_t sf_phase;     /* 0 or 1: which half of bubbles to project this frame */
 static uint8_t sf_parity;    /* per-bubble: toggles 0/1 each iteration */
+uint8_t sf_cull_y;           /* bubbles with sy < this are culled (0 = no culling) */
+uint8_t sf_cull_y_floor;     /* bubbles with sy > this are culled (0 = no culling) */
 
 /* ------------------------------------------------------------------ */
 /* Update positions and draw all active bubbles for one frame.         */
@@ -200,17 +202,8 @@ void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
     ld  a, (hl)
     ld  (_sf_vz), a
 
-    ;; Double velocities: each bubble updates position at 25fps (every other
-    ;; frame), so 2x displacement per update = same visual speed as 50fps/1x.
-    ld  a, (_sf_vx)
-    add a, a
-    ld  (_sf_vx), a
-    ld  a, (_sf_vy)
-    add a, a
-    ld  (_sf_vy), a
-    ld  a, (_sf_vz)
-    add a, a
-    ld  (_sf_vz), a
+    ;; Each bubble updates at 25fps (split-frame), so velocity is already
+    ;; effectively halved compared to 50fps. No doubling needed.
 
     ;; ---- Loop setup ----
     ld  a, (_bubble_count)
@@ -426,6 +419,20 @@ _sf_psy_pos:
     ld  a, l
     cp  160
     jp  nc, _sf_offscr
+    ;; Cull bubbles above sea line
+    ld  a, (_sf_cull_y)
+    or  a
+    jr  z, _sf_no_cull
+    cp  l
+    jp  nc, _sf_offscr
+_sf_no_cull:
+    ;; Cull bubbles below sea floor
+    ld  a, (_sf_cull_y_floor)
+    or  a
+    jr  z, _sf_no_cull_f
+    cp  l
+    jp  c, _sf_offscr
+_sf_no_cull_f:
 
     ;; ======== PLOT ========
     ld  d, l                    ; D = sy

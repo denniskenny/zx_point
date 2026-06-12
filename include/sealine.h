@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#define SEALINE_DEFAULT_Y  80  /* 2 char rows above screen centre */
+
 /* Initialise the sea line at its default position (2 char rows above centre) */
 void sealine_init(void);
 

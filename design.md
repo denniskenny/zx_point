@@ -137,23 +137,21 @@ A pixel line will extend from the end of the crane with the player character ren
 Once the pixel line descends far enough that the player character is at the centre of the screen, the boat disappears and player control is enabled.
 
 ### On Surfacing
-When the player returns to the surface (depth 0, top of sub-cube), the level ends:
+When the player returns to the surface (depth 0, top of sub-cube):
 
-* **All relics collected**: Level Complete -- player advances to the next level via the summary screen.
-* **Relics missing**: Game Over -- death animation plays, then summary screen, then title screen.
+* **All relics collected**: Level Complete — player advances to the next level via the summary screen.
+* **Relics missing**: Surfaced Early — the summary screen shows "Surfaced Early" with collected/total counts. Pressing any key (or Kempston fire) returns the player to the game with replenished oxygen to continue the same level. The player's grid position, health, and collected treasures are preserved; only oxygen is refilled. The diver re-enters at the top of depth 0.
 
 The player does not need to collect all treasures (flotsam is optional), but all archaeological relics must be recovered for a successful completion.
 
 Future implementation: the ship and crane will reappear, a pixel line will descend, and the diver will be lifted out of the water.
 
 ### On Level Failure
-1. **Surfacing without relics**: treated as game over (see above).
+1. **Surfacing without relics**: the player is shown the summary screen and may continue the level (see On Surfacing above).
 
-2. **Health or oxygen depleted**: the beeper emits a continuous high tone and the screen colour-cycles through all attributes from white to black over approximately 1 second (8 steps, 48 frames).
+2. **Health or oxygen depleted**: the beeper emits a continuous high tone and the screen colour-cycles through all attributes from white to black over approximately 1 second (8 steps, 48 frames). The player is taken to the summary screen showing "Game Over", then any key returns to the title screen.
 
-3. **Great Old One collision**: instant death at depth 2. The death animation plays. (GOO-specific death animation with sonar not yet implemented.)
-
-The player is taken to the level summary screen and then the title screen.
+3. **Great Old One collision**: instant death at depth 2. The death animation plays. (GOO-specific death animation with sonar not yet implemented.) The player is taken to the summary screen then the title screen.
 
 ## Technical Implementation
 The game will be implemented using the ZX Spectrum 48k. The game will be written in C with assembly language routines for the critical sections.

@@ -22,12 +22,15 @@
 #include "../include/hud.h"
 #include "../include/minimap.h"
 #include "../include/predators.h"
+#include "../include/sealine.h"
 
 /* --- Bubblefield public API (from src/bubblefield.c) --- */
 extern void init_bubbles(void);
 extern void bubbles_set_count(uint8_t count);
 extern void bubbles_erase_all(void);
 extern void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz);
+extern uint8_t sf_cull_y;
+extern uint8_t sf_cull_y_floor;
 
 /* --- Border colour (shared with depth.c and sound.c) --- */
 extern uint8_t border_val;
@@ -53,7 +56,7 @@ static uint8_t spr_attr;
 
 /* --- Persistent state across game states --- */
 static uint8_t current_level;
-static uint8_t game_over_flag;   /* 1 = death, 0 = level complete */
+static uint8_t game_over_flag;   /* 0 = level complete, 1 = death, 2 = surfaced early */
 static uint8_t anim_timer;
 static uint8_t key_debounce;
 
@@ -79,9 +82,11 @@ static const char * const level_names[] = {
 /* Returns 1 if any keyboard key is pressed */
 static uint8_t any_key_pressed(void)
 {
-    /* Port 0x00FE with all address lines low selects all half-rows */
-    return (read_keys(0x00FE) & 0x1F) != 0x1F;
+    if ((read_keys(0x00FE) & 0x1F) != 0x1F) return 1;
+    if (has_kempston && (read_keys(KEMP_PORT) & 0x10)) return 1;
+    return 0;
 }
+
 
 /* Print a uint8_t value (1-3 digits) at character position */
 static void print_num(uint8_t col, uint8_t row, uint8_t val)
@@ -216,8 +221,14 @@ static game_state_t state_game_init(void)
     frame = 0;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
 
-    /* Initialise player at grid centre, full health/oxygen */
-    player_init();
+    if (game_over_flag == 2) {
+        /* Continuing after surfacing — keep position, replenish oxygen */
+        player.oxygen = OXYGEN_MAX;
+        player.sub_z = CUBE_SUB_Z - 1;
+        player.invuln_timer = 0;
+    } else {
+        player_init();
+    }
 
     bubbles_set_count(BUBBLES_DEPTH1);
     init_bubbles();
@@ -236,6 +247,12 @@ static game_state_t state_game_init(void)
 
     /* Reset minimap update timer */
     minimap_init();
+
+    /* Sea line and sea floor */
+    sealine_init();
+    seafloor_init();
+    sf_cull_y = 0;
+    sf_cull_y_floor = 0;
 
     return STATE_GAME;
 }
@@ -273,7 +290,45 @@ static game_state_t state_game_tick(void)
     vsync_wait();
 
     predators_erase();
-    update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
+
+    {
+        uint8_t trans = depth_is_transitioning();
+        uint8_t at_floor = (player.gy == GRID_D - 1 && !trans);
+        uint8_t at_bottom = (player.gy == GRID_D - 1);
+        int16_t sly_i;
+        uint16_t total_depth;
+
+        /* Sea line: pinned at world top (gy=0, sub_z=0).
+         * Not shown at the bottommost subcube. */
+        total_depth = (uint16_t)player.gy * CUBE_SUB_Z + player.sub_z;
+        sly_i = SEALINE_DEFAULT_Y -
+            (int16_t)(total_depth * SEALINE_DEFAULT_Y / CUBE_SUB_Z);
+
+        if (sly_i >= 0 && !trans && !at_bottom) {
+            sf_cull_y = (uint8_t)(sly_i + 6);
+        } else {
+            sf_cull_y = 0;
+        }
+
+        /* Sea floor cull: clip bubbles below the floor line */
+        if (at_floor) {
+            uint8_t sfy = VIEW_H - 1 -
+                (uint8_t)((uint16_t)player.sub_z * (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
+            sf_cull_y_floor = sfy;
+            update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
+            seafloor_update(sfy);
+        } else {
+            sf_cull_y_floor = 0;
+            update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
+            seafloor_erase();
+        }
+
+        if (sly_i >= 0 && !trans && !at_bottom)
+            sealine_update((uint8_t)sly_i);
+        else
+            sealine_erase();
+    }
+
     if (!depth_is_transitioning())
         predators_draw(frame);
     treasure_render(frame);
@@ -386,8 +441,7 @@ static game_state_t state_game_tick(void)
         else if (edge_x) { sv_x = 0; bubble_vx = 0; }
         was_edge_x = edge_x;
 
-        if (edge_y && !was_edge_y) { sv_y = -sv_y; bubble_vy = sv_y; }
-        else if (edge_y) { sv_y = 0; bubble_vy = 0; }
+        if (edge_y) { sv_y = 0; bubble_vy = 0; }
         was_edge_y = edge_y;
 
         if (edge_z && !was_edge_z) { sv_z = -sv_z; bubble_vz = sv_z; }
@@ -414,14 +468,14 @@ static game_state_t state_game_tick(void)
     /* --- Treasure proximity check --- */
     treasure_check_collection();
 
-    /* --- Surfacing: level complete if relics done, game over if not --- */
+    /* --- Surfacing: level complete if relics done, status screen if not --- */
     if (player.gy == 0 && player.at_bound_y) {
         if (level.arch_collected >= level.arch_count) {
             game_over_flag = 0;
             return STATE_SUMMARY;
         } else {
-            game_over_flag = 1;
-            return STATE_GAMEOVER;
+            game_over_flag = 2;
+            return STATE_SUMMARY;
         }
     }
 
@@ -523,8 +577,10 @@ static game_state_t state_summary_init(void)
 
     screen_clear(0x07, 0);   /* white ink, black paper */
 
-    if (game_over_flag) {
+    if (game_over_flag == 1) {
         print_at(11, 3, "Game Over");
+    } else if (game_over_flag == 2) {
+        print_at(8, 3, "Surfaced Early");
     } else {
         print_at(9, 3, "Level Complete!");
     }
@@ -553,8 +609,11 @@ static game_state_t state_summary_init(void)
     print_at(2, 14, "Total this dive: ");
     print_num(19, 14, level.collected_count);
 
-    if (game_over_flag) {
+    if (game_over_flag == 1) {
         print_at(6, 18, "Press any key");
+    } else if (game_over_flag == 2) {
+        print_at(3, 18, "Press any key to");
+        print_at(7, 19, "dive again");
     } else {
         print_at(4, 18, "Press any key for");
         print_at(8, 19, "next level");
@@ -572,9 +631,10 @@ static game_state_t state_summary_tick(void)
         return STATE_SUMMARY;
     }
     if (any_key_pressed()) {
-        if (game_over_flag)
+        if (game_over_flag == 1)
             return STATE_TITLE;
-        /* Advance to next level */
+        if (game_over_flag == 2)
+            return STATE_GAME;
         current_level++;
         return STATE_INTRO;
     }

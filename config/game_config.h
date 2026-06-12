@@ -47,8 +47,8 @@
 
 /* --- Depth-level bubble counts --- */
 #define BUBBLES_DEPTH1  38
-#define BUBBLES_DEPTH2  25
-#define BUBBLES_DEPTH3  8
+#define BUBBLES_DEPTH2  32
+#define BUBBLES_DEPTH3  28
 
 /* --- Distances (in cube units) --- */
 #define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */
