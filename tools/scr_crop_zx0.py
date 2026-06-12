@@ -79,7 +79,7 @@ def main():
 
     mirror_col = None
     if mirror:
-        center = 15  # axis of symmetry between cols 15 and 16 (pixel 128)
+        center = 14  # axis of symmetry between cols 14 and 15
         max_col = min(max_col, center)
         mirror_col = center + 1
 

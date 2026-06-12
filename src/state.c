@@ -656,38 +656,119 @@ static game_state_t state_summary_tick(void)
 /* ------------------------------------------------------------------ */
 
 #define SCRATCH_BUF ((uint8_t *)0x6000)
+#define GOO_DRAW_COL    GOO_CROP_COL + 1
+#define GOO_DRAW_ROW    GOO_CROP_ROW - 8
+#define GOO_DRAW_END_Y  GOO_CROP_ROW - 8 + GOO_CROP_H
 
 static const uint8_t * const goo_frames[4] = {
     goo_frame1, goo_frame2, goo_frame3, goo_frame4
 };
 static const uint8_t goo_hold[4] = {
-    50, 40, 60, 50
+    80, 70, 90, 80
 };
 
 static uint8_t goo_step;
 static uint8_t goo_timer;
 
-static const uint8_t nib_rev[16] = {
-    0x0, 0x8, 0x4, 0xC, 0x2, 0xA, 0x6, 0xE,
-    0x1, 0x9, 0x5, 0xD, 0x3, 0xB, 0x7, 0xF
-};
+#define BIT_REV_TABLE  ((uint8_t *)0x6900)
+#define BIT_REV_PAGE   0x69
 
-static void xor_crop_to_screen(void)
+static void init_bit_rev(void)
 {
-    uint8_t *src = SCRATCH_BUF;
-    uint8_t y, col, b;
-    uint16_t off_l, off_r;
-
-    for (y = GOO_CROP_ROW; y < GOO_CROP_ROW + GOO_CROP_H; y++) {
-        off_l = scr_off(GOO_CROP_COL << 3, y);
-        off_r = scr_off((uint8_t)(GOO_MIRROR_COL << 3), y);
-        for (col = 0; col < GOO_CROP_W; col++) {
-            b = *src++;
-            SCREEN[off_l + col] ^= b;
-            SCREEN[off_r + (GOO_CROP_W - 1 - col)] ^=
-                (nib_rev[b & 0x0F] << 4) | nib_rev[b >> 4];
-        }
+    uint16_t i;
+    for (i = 0; i < 256; i++) {
+        uint8_t b = (uint8_t)i;
+        b = ((b & 0xF0) >> 4) | ((b & 0x0F) << 4);
+        b = ((b & 0xCC) >> 2) | ((b & 0x33) << 2);
+        b = ((b & 0xAA) >> 1) | ((b & 0x55) << 1);
+        BIT_REV_TABLE[i] = b;
     }
+}
+
+static void xor_crop_to_screen(void) __naked
+{
+    __asm
+
+    push    bc
+    push    de
+    push    ix
+
+    ld      ix, #0x6000             ; SCRATCH_BUF
+    ld      c, #GOO_DRAW_ROW        ; y = starting row
+
+_xor_row:
+    ;; ---- compute screen address for y=C, column 0 ----
+    ld      a, c
+    ld      e, a                    ; save y in E
+    and     #0x07
+    or      #0x40                   ; screen base high nibble
+    ld      h, a
+    ld      a, e
+    and     #0xC0
+    rrca
+    rrca
+    rrca
+    or      h
+    ld      h, a                    ; H = 010 TT SSS
+    ld      a, e
+    and     #0x38
+    rlca
+    rlca
+    ld      l, a                    ; L = RRR 00000 (col 0)
+
+    ;; ---- Pass 1: XOR source to left screen (cols 2-15) ----
+    ld      a, l
+    or      #GOO_DRAW_COL           ; add left column offset
+    ld      l, a
+
+    push    ix                      ; save source ptr for pass 2
+
+    ld      b, #GOO_CROP_W
+_xor_left:
+    ld      a, 0(ix)
+    inc     ix
+    xor     (hl)
+    ld      (hl), a
+    inc     hl
+    djnz    _xor_left
+
+    ;; ---- Pass 2 setup ----
+    ;; HL is now at screen + GOO_MIRROR_COL (col 16)
+    ld      d, h                    ; D = row high byte
+    ld      a, l
+    add     a, #(GOO_CROP_W - 1)   ; col 16 + 13 = col 29
+    ld      e, a                    ; DE = right screen end
+
+    ld      h, #BIT_REV_PAGE        ; H = table page (0x69)
+
+    pop     ix                      ; reload source start
+
+    ;; ---- Pass 2: bit-reverse + XOR to right screen (cols 29-16) ----
+    ld      b, #GOO_CROP_W
+_xor_right:
+    ld      a, 0(ix)
+    inc     ix
+    ld      l, a                    ; table index
+    ld      a, (hl)                 ; bit-reversed byte
+    ex      de, hl                  ; HL=screen, DE=table
+    xor     (hl)
+    ld      (hl), a
+    dec     hl
+    ex      de, hl                  ; DE=screen-1, HL=table
+    djnz    _xor_right
+
+    ;; ---- next row ----
+    inc     c
+    ld      a, c
+    cp      #GOO_DRAW_END_Y
+    jp      nz, _xor_row
+
+    pop     ix
+    pop     de
+    pop     bc
+    ret
+
+    __endasm;
 }
 
 static game_state_t state_goo_death_init(void)
@@ -695,6 +776,7 @@ static game_state_t state_goo_death_init(void)
     goo_step = 0;
     goo_timer = 0;
 
+    init_bit_rev();
     dzx0_decompress(goo_frames[0], SCRATCH_BUF);
     xor_crop_to_screen();
 
