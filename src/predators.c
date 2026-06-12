@@ -101,11 +101,14 @@ void predators_spawn(uint8_t level_num)
     uint8_t n_rays, n_sharks, n_goos;
 
     predator_count = 0;
-    if (level_num < 2) return;   /* Level 1: no predators */
+    /* TEMP: disabled for GOO testing */
+    /* if (level_num < 2) return; */
 
     n_rays   = level_num * RAY_CONSTANT;
     n_sharks = (level_num >= 3) ? (level_num - 2) : 0;
     n_goos   = (level_num >= 5) ? (level_num - 4) : 0;
+    /* TEMP: spawn one GOO on level 1 for testing */
+    if (n_goos == 0) n_goos = 1;
 
     /* Cap to MAX_PREDATORS */
     if (n_rays + n_sharks + n_goos > MAX_PREDATORS)

@@ -667,16 +667,26 @@ static const uint8_t goo_hold[4] = {
 static uint8_t goo_step;
 static uint8_t goo_timer;
 
+static const uint8_t nib_rev[16] = {
+    0x0, 0x8, 0x4, 0xC, 0x2, 0xA, 0x6, 0xE,
+    0x1, 0x9, 0x5, 0xD, 0x3, 0xB, 0x7, 0xF
+};
+
 static void xor_crop_to_screen(void)
 {
     uint8_t *src = SCRATCH_BUF;
-    uint8_t y, col;
-    uint16_t off;
+    uint8_t y, col, b;
+    uint16_t off_l, off_r;
 
     for (y = GOO_CROP_ROW; y < GOO_CROP_ROW + GOO_CROP_H; y++) {
-        off = scr_off(GOO_CROP_COL << 3, y);
-        for (col = 0; col < GOO_CROP_W; col++)
-            SCREEN[off + col] ^= *src++;
+        off_l = scr_off(GOO_CROP_COL << 3, y);
+        off_r = scr_off((uint8_t)(GOO_MIRROR_COL << 3), y);
+        for (col = 0; col < GOO_CROP_W; col++) {
+            b = *src++;
+            SCREEN[off_l + col] ^= b;
+            SCREEN[off_r + (GOO_CROP_W - 1 - col)] ^=
+                (nib_rev[b & 0x0F] << 4) | nib_rev[b >> 4];
+        }
     }
 }
 

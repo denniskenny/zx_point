@@ -67,7 +67,7 @@ include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
 # GOO anglerfish frames (cropped + ZX0 compressed)
 GOO_SRCS = assets/goo_1.scr assets/goo_3.scr assets/goo_5.scr assets/goo_6.scr
 include/goo_data.h: $(GOO_SRCS) tools/scr_crop_zx0.py
-	$(SCR_CROP_ZX0) $@ $(ZX0) \
+	$(SCR_CROP_ZX0) --mirror $@ $(ZX0) \
 		goo_frame1:assets/goo_1.scr goo_frame2:assets/goo_3.scr \
 		goo_frame3:assets/goo_5.scr goo_frame4:assets/goo_6.scr
 

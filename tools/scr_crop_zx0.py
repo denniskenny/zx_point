@@ -5,8 +5,12 @@ Finds the union bounding box across all input frames, extracts that region
 in row-major order, compresses each with ZX0, and writes a single C header
 with the data arrays and crop constants.
 
+With --mirror, only the left half (up to column 15) is stored.  The runtime
+reconstructs the right half by bit-reversing each byte and reversing column
+order.  The header emits GOO_MIRROR_COL for the right-half start column.
+
 Usage:
-    python3 tools/scr_crop_zx0.py output.h zx0_path name1:file1.scr [name2:file2.scr ...]
+    python3 tools/scr_crop_zx0.py [--mirror] output.h zx0_path name1:file1.scr [...]
 
 Requires the zx0 compressor binary at zx0_path.
 """
@@ -50,14 +54,20 @@ def crop_frame(data, min_col, min_y, max_col, max_y):
 
 
 def main():
-    if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} output.h zx0_path name1:file1.scr [...]")
+    args = sys.argv[1:]
+    mirror = False
+    if args and args[0] == "--mirror":
+        mirror = True
+        args = args[1:]
+
+    if len(args) < 3:
+        print(f"Usage: {sys.argv[0]} [--mirror] output.h zx0_path name1:file1.scr [...]")
         sys.exit(1)
 
-    dst = sys.argv[1]
-    zx0_bin = sys.argv[2]
+    dst = args[0]
+    zx0_bin = args[1]
     entries = []
-    for arg in sys.argv[3:]:
+    for arg in args[2:]:
         name, path = arg.split(":", 1)
         with open(path, "rb") as f:
             data = f.read()[:6144]
@@ -66,11 +76,19 @@ def main():
     # Union bounding box
     frames = [data for _, data in entries]
     min_col, min_y, max_col, max_y = find_bbox(frames)
+
+    mirror_col = None
+    if mirror:
+        center = 15  # axis of symmetry between cols 15 and 16 (pixel 128)
+        max_col = min(max_col, center)
+        mirror_col = center + 1
+
     w = max_col - min_col + 1
     h = max_y - min_y + 1
     crop_size = w * h
 
-    print(f"Bounding box: rows {min_y}-{max_y}, cols {min_col}-{max_col}")
+    print(f"Bounding box: rows {min_y}-{max_y}, cols {min_col}-{max_col}"
+          + (f" (mirror from col {mirror_col})" if mirror else ""))
     print(f"Crop: {h} rows x {w} byte-cols = {crop_size} bytes (was 6144)")
 
     # Crop and compress each frame
@@ -97,7 +115,10 @@ def main():
         f.write(f"#define GOO_CROP_ROW  {min_y}\n")
         f.write(f"#define GOO_CROP_W    {w}\n")
         f.write(f"#define GOO_CROP_H    {h}\n")
-        f.write(f"#define GOO_CROP_SIZE {crop_size}\n\n")
+        f.write(f"#define GOO_CROP_SIZE {crop_size}\n")
+        if mirror_col is not None:
+            f.write(f"#define GOO_MIRROR_COL {mirror_col}\n")
+        f.write("\n")
         for name, zdata in compressed:
             f.write(f"/* ZX0 compressed cropped screen data ({len(zdata)} bytes) */\n")
             f.write(f"static const unsigned char {name}[] = {{\n")
