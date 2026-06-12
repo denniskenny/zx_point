@@ -23,6 +23,7 @@
 #include "../include/minimap.h"
 #include "../include/predators.h"
 #include "../include/sealine.h"
+#include "../include/vignette.h"
 
 /* --- Bubblefield public API (from src/bubblefield.c) --- */
 extern void init_bubbles(void);
@@ -102,6 +103,18 @@ static void print_num(uint8_t col, uint8_t row, uint8_t val)
 }
 
 /* Clear screen and set uniform attributes + border */
+static void vignette_load(void)
+{
+    const uint8_t *src = vignette_rle;
+    uint8_t *dst = SCREEN;
+    uint8_t count;
+    while ((count = *src++) != 0) {
+        uint8_t val = *src++;
+        while (count--)
+            *dst++ |= val;
+    }
+}
+
 static void screen_clear(uint8_t attr, uint8_t border)
 {
     memset(SCREEN, 0, PIX_SIZE);
@@ -233,9 +246,10 @@ static game_state_t state_game_init(void)
     bubbles_set_count(BUBBLES_DEPTH1);
     init_bubbles();
 
-    /* Clear screen and set up depth colours */
+    /* Clear screen, set up depth colours, overlay vignette */
     sprites_init();
     depth_set(1);
+    vignette_load();
     spr_attr = depth_get_paper() | 0x06;
 
     /* Reset predator and treasure draw tracking */
@@ -310,11 +324,12 @@ static game_state_t state_game_tick(void)
             sf_cull_y = 0;
         }
 
-        /* Sea floor cull: clip bubbles below the floor line */
+        /* Sea floor cull: clip bubbles below the floor line.
+         * Offset by 4 so 4x4 close bubbles never overlap the floor. */
         if (at_floor) {
             uint8_t sfy = VIEW_H - 1 -
                 (uint8_t)((uint16_t)player.sub_z * (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
-            sf_cull_y_floor = sfy;
+            sf_cull_y_floor = (sfy > 4) ? sfy - 4 : 1;
             update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
             seafloor_update(sfy);
         } else {

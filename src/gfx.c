@@ -18,13 +18,13 @@ uint16_t scr_off(uint8_t x, uint8_t y)
 void plot(uint8_t *buf, uint8_t x, uint8_t y)
 {
     if (y >= 192) return;
-    buf[scr_off(x, y)] |= (0x80 >> (x & 7));
+    buf[scr_off(x, y)] ^= (0x80 >> (x & 7));
 }
 
 void unplot(uint8_t *buf, uint8_t x, uint8_t y)
 {
     if (y >= 192) return;
-    buf[scr_off(x, y)] &= ~(0x80 >> (x & 7));
+    buf[scr_off(x, y)] ^= (0x80 >> (x & 7));
 }
 
 void write_sprite(uint8_t *buf, const uint8_t *spr,

@@ -520,13 +520,13 @@ _sf_plot:
     ld  a, (hl)
     pop hl
 
-    ;; Set pixel
-    or  (hl)
+    ;; Toggle pixel (XOR preserves vignette)
+    xor (hl)
     ld  (hl), a
     ret
 
     ;; ================================================================
-    ;; _sf_unplot — clear pixel at (E, D) on screen
+    ;; _sf_unplot — toggle pixel at (E, D) on screen
     ;; Input:  E = x (0-255), D = y (0-191)
     ;; Destroys: A, BC, HL.  Preserves: DE, IX.
     ;; ================================================================
@@ -569,8 +569,7 @@ _sf_unplot:
     ld  a, (hl)
     pop hl
 
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
     ret
 
@@ -681,7 +680,7 @@ _pb_r0n:
     ld  a, (de)
     or  a
     jr  z, _pb_r0r
-    or  (hl)
+    xor (hl)
     ld  (hl), a
 _pb_r0r:
     inc de
@@ -689,7 +688,7 @@ _pb_r0r:
     or  a
     jr  z, _pb_r0d
     inc l
-    or  (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _pb_r0d:
@@ -706,7 +705,7 @@ _pb_r1n:
     ld  a, (de)
     or  a
     jr  z, _pb_r1r
-    or  (hl)
+    xor (hl)
     ld  (hl), a
 _pb_r1r:
     inc de
@@ -714,7 +713,7 @@ _pb_r1r:
     or  a
     jr  z, _pb_r1d
     inc l
-    or  (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _pb_r1d:
@@ -731,7 +730,7 @@ _pb_r2n:
     ld  a, (de)
     or  a
     jr  z, _pb_r2r
-    or  (hl)
+    xor (hl)
     ld  (hl), a
 _pb_r2r:
     inc de
@@ -739,7 +738,7 @@ _pb_r2r:
     or  a
     jr  z, _pb_r2d
     inc l
-    or  (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _pb_r2d:
@@ -756,7 +755,7 @@ _pb_r3n:
     ld  a, (de)
     or  a
     jr  z, _pb_r3r
-    or  (hl)
+    xor (hl)
     ld  (hl), a
 _pb_r3r:
     inc de
@@ -764,7 +763,7 @@ _pb_r3r:
     or  a
     ret z
     inc l
-    or  (hl)
+    xor (hl)
     ld  (hl), a
     ret
 
@@ -792,8 +791,7 @@ _eb_r0n:
     ld  a, (de)
     or  a
     jr  z, _eb_r0r
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
 _eb_r0r:
     inc de
@@ -801,8 +799,7 @@ _eb_r0r:
     or  a
     jr  z, _eb_r0d
     inc l
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _eb_r0d:
@@ -819,8 +816,7 @@ _eb_r1n:
     ld  a, (de)
     or  a
     jr  z, _eb_r1r
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
 _eb_r1r:
     inc de
@@ -828,8 +824,7 @@ _eb_r1r:
     or  a
     jr  z, _eb_r1d
     inc l
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _eb_r1d:
@@ -846,8 +841,7 @@ _eb_r2n:
     ld  a, (de)
     or  a
     jr  z, _eb_r2r
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
 _eb_r2r:
     inc de
@@ -855,8 +849,7 @@ _eb_r2r:
     or  a
     jr  z, _eb_r2d
     inc l
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
     dec l
 _eb_r2d:
@@ -873,8 +866,7 @@ _eb_r3n:
     ld  a, (de)
     or  a
     jr  z, _eb_r3r
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
 _eb_r3r:
     inc de
@@ -882,8 +874,7 @@ _eb_r3r:
     or  a
     ret z
     inc l
-    cpl
-    and (hl)
+    xor (hl)
     ld  (hl), a
     ret
 

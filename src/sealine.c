@@ -118,48 +118,65 @@ uint8_t sealine_is_visible(void)
 /* Sea floor                                                           */
 /* ================================================================== */
 
-static uint8_t sf_y;        /* current y position */
+static uint8_t sf_y;        /* current top of solid surface */
 static uint8_t sf_visible;
 static uint8_t sf_drawn;
 
 void seafloor_init(void)
 {
-    sf_y = 191;
+    sf_y = VIEW_H;
     sf_visible = 0;
     sf_drawn = 0;
 }
 
-static void seafloor_fill_row(uint8_t y, uint8_t val)
+static void seafloor_xor_row(uint8_t y)
 {
     uint16_t off = scr_off(0, y);
     uint8_t col;
     for (col = 0; col < 32; col++)
-        SCREEN[off + col] = val;
+        SCREEN[off + col] ^= 0xFF;
 }
 
 void seafloor_erase(void)
 {
+    uint8_t y;
     if (!sf_drawn) return;
-    seafloor_fill_row(sf_y, 0x00);
+    for (y = sf_y; y < VIEW_H; y++)
+        seafloor_xor_row(y);
+    sf_y = VIEW_H;
     sf_drawn = 0;
 }
 
 void seafloor_update(uint8_t y)
 {
-    if (sf_drawn && sf_y != y)
-        seafloor_fill_row(sf_y, 0x00);
-
-    sf_y = y;
-
     if (y >= VIEW_H) {
+        seafloor_erase();
         sf_visible = 0;
-        sf_drawn = 0;
         return;
     }
 
     sf_visible = 1;
-    seafloor_fill_row(y, 0xFF);
-    sf_drawn = 1;
+
+    if (!sf_drawn) {
+        seafloor_xor_row(y);
+        sf_y = y;
+        sf_drawn = 1;
+        return;
+    }
+
+    if (y < sf_y) {
+        /* Descending: floor rises — XOR new rows on */
+        uint8_t row;
+        for (row = y; row < sf_y; row++)
+            seafloor_xor_row(row);
+        sf_y = y;
+    } else if (y > sf_y) {
+        /* Ascending: floor drops — XOR exposed rows off */
+        uint8_t row;
+        for (row = sf_y; row < y; row++)
+            seafloor_xor_row(row);
+        sf_y = y;
+    }
 }
 
 uint8_t seafloor_get_y(void)
