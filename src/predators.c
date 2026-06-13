@@ -202,14 +202,15 @@ void predators_update(void)
 void predators_erase(void)
 {
     uint8_t i;
-    uint8_t bg_attr = depth_get_paper() | (ATTR[0] & 0x07);
+
+    xor32_attr = depth_get_paper() | (ATTR[0] & 0x07);
 
     for (i = 0; i < prev_pool_count; i++) {
         if (prev_drawn[i]) {
-            xor_sprite_32(SCREEN, prev_frame[i],
-                          prev_draw_x[i], prev_draw_y[i]);
-            set_attr_rect(prev_draw_x[i] >> 3, prev_draw_y[i] >> 3,
-                          4, 4, bg_attr);
+            xor32_spr = prev_frame[i];
+            xor32_x = prev_draw_x[i];
+            xor32_y = prev_draw_y[i];
+            xor_sprite_32_fast();
             prev_drawn[i] = 0;
         }
     }
@@ -224,10 +225,9 @@ void predators_draw(uint8_t frame_ctr)
     uint8_t i, pool_idx;
     predator_t *p;
     const uint8_t *frame_data;
-    uint8_t attr;
     int16_t dx_sub, dz_sub, sx, sy;
 
-    attr = depth_get_paper() | 0x04;
+    xor32_attr = depth_get_paper() | 0x04;
     pool_idx = 0;
 
     for (i = 0; i < predator_count && pool_idx < MAX_VISIBLE_PREDS; i++) {
@@ -256,10 +256,10 @@ void predators_draw(uint8_t frame_ctr)
         prev_draw_y[pool_idx] = (uint8_t)sy;
         prev_frame[pool_idx] = frame_data;
 
-        xor_sprite_32(SCREEN, frame_data,
-                      prev_draw_x[pool_idx], prev_draw_y[pool_idx]);
-        set_attr_rect(prev_draw_x[pool_idx] >> 3,
-                      prev_draw_y[pool_idx] >> 3, 4, 4, attr);
+        xor32_spr = frame_data;
+        xor32_x = prev_draw_x[pool_idx];
+        xor32_y = prev_draw_y[pool_idx];
+        xor_sprite_32_fast();
 
         prev_drawn[pool_idx] = 1;
         pool_idx++;

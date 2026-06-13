@@ -29,7 +29,7 @@
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 Fire=4 */
 
 /* --- Bubblefield parameters --- */
-#define NUM_BUBBLES  38
+#define NUM_BUBBLES  56
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -47,9 +47,9 @@
 #define GRID_H  32
 
 /* --- Depth-level bubble counts --- */
-#define BUBBLES_DEPTH1  38
-#define BUBBLES_DEPTH2  32
-#define BUBBLES_DEPTH3  28
+#define BUBBLES_DEPTH1  56
+#define BUBBLES_DEPTH2  44
+#define BUBBLES_DEPTH3  36
 
 /* --- Distances (in cube units) --- */
 #define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */
@@ -110,6 +110,10 @@
 /* and HUD — the bubblefield engine never renders below VIEW_H.         */
 #define VIEW_W       256
 #define VIEW_H       (MINIMAP_ROW * 8)   /* 160 */
+
+/* Horizontal bubble clipping — ~16% inset on each side */
+#define BF_X_MIN     42
+#define BF_X_MAX     214   /* exclusive: sx < 214 to pass */
 
 /* --- Predator types --- */
 #define PRED_RAY    0

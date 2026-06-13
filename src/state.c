@@ -687,7 +687,7 @@ static void init_bit_rev(void)
     }
 }
 
-static void xor_crop_to_screen(void) __naked
+static void write_crop_to_screen(void) __naked
 {
     __asm
 
@@ -698,7 +698,7 @@ static void xor_crop_to_screen(void) __naked
     ld      ix, #0x6000             ; SCRATCH_BUF
     ld      c, #GOO_DRAW_ROW        ; y = starting row
 
-_xor_row:
+_wr_row:
     ;; ---- compute screen address for y=C, column 0 ----
     ld      a, c
     ld      e, a                    ; save y in E
@@ -718,7 +718,7 @@ _xor_row:
     rlca
     ld      l, a                    ; L = RRR 00000 (col 0)
 
-    ;; ---- Pass 1: XOR source to left screen (cols 2-15) ----
+    ;; ---- Pass 1: write source to left screen ----
     ld      a, l
     or      #GOO_DRAW_COL           ; add left column offset
     ld      l, a
@@ -726,44 +726,41 @@ _xor_row:
     push    ix                      ; save source ptr for pass 2
 
     ld      b, #GOO_CROP_W
-_xor_left:
+_wr_left:
     ld      a, 0(ix)
     inc     ix
-    xor     (hl)
     ld      (hl), a
     inc     hl
-    djnz    _xor_left
+    djnz    _wr_left
 
     ;; ---- Pass 2 setup ----
-    ;; HL is now at screen + GOO_MIRROR_COL (col 16)
     ld      d, h                    ; D = row high byte
     ld      a, l
-    add     a, #(GOO_CROP_W - 1)   ; col 16 + 13 = col 29
+    add     a, #(GOO_CROP_W - 1)
     ld      e, a                    ; DE = right screen end
 
     ld      h, #BIT_REV_PAGE        ; H = table page (0x69)
 
     pop     ix                      ; reload source start
 
-    ;; ---- Pass 2: bit-reverse + XOR to right screen (cols 29-16) ----
+    ;; ---- Pass 2: bit-reverse + write to right screen ----
     ld      b, #GOO_CROP_W
-_xor_right:
+_wr_right:
     ld      a, 0(ix)
     inc     ix
     ld      l, a                    ; table index
     ld      a, (hl)                 ; bit-reversed byte
     ex      de, hl                  ; HL=screen, DE=table
-    xor     (hl)
     ld      (hl), a
     dec     hl
     ex      de, hl                  ; DE=screen-1, HL=table
-    djnz    _xor_right
+    djnz    _wr_right
 
     ;; ---- next row ----
     inc     c
     ld      a, c
     cp      #GOO_DRAW_END_Y
-    jp      nz, _xor_row
+    jp      nz, _wr_row
 
     pop     ix
     pop     de
@@ -780,7 +777,7 @@ static game_state_t state_goo_death_init(void)
 
     init_bit_rev();
     dzx0_decompress(goo_frames[0], SCRATCH_BUF);
-    xor_crop_to_screen();
+    write_crop_to_screen();
 
     sfx_play_note(30, 255);
 
@@ -798,9 +795,8 @@ static game_state_t state_goo_death_tick(void)
 
         goo_timer = 0;
 
-        xor_crop_to_screen();
         dzx0_decompress(goo_frames[goo_step], SCRATCH_BUF);
-        xor_crop_to_screen();
+        write_crop_to_screen();
 
         if (goo_step < 2)
             sfx_play_note(20, (uint8_t)(255 - goo_step * 60));

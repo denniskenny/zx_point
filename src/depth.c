@@ -5,8 +5,8 @@
  * Attribute byte format: F_B_PPP_III (flash, bright, paper, ink).
  *
  * Depth 1: Paper=cyan(5), Ink=blue(1), Bright=0   → 0x29  border=1 (blue)
- * Depth 2: Paper=blue(1), Ink=magenta(3), Bright=0   → 0x0B  border=3 (magenta)
- * Depth 3: Paper=black(0), Ink=blue(1), Bright=0  → 0x01  border=1 (blue)
+ * Depth 2: Paper=blue(1), Ink=cyan(5), Bright=0      → 0x0D  border=5 (cyan)
+ * Depth 3: Paper=black(0), Ink=blue(1), Bright=1  → 0x41  border=1 (blue)
  */
 
 #include <string.h>
@@ -18,8 +18,8 @@
 #define TRANSITION_FRAMES 8
 
 /* --- Resting attributes per depth (1-indexed, [0] unused) --- */
-static const uint8_t depth_attr[4]   = { 0, 0x29, 0x0B, 0x01 };
-static const uint8_t depth_border[4] = { 0, 1,    3,    1    };
+static const uint8_t depth_attr[4]   = { 0, 0x29, 0x0D, 0x41 };
+static const uint8_t depth_border[4] = { 0, 1,    5,    1    };
 
 uint8_t current_depth = 1;
 
@@ -39,24 +39,24 @@ static void set_border(uint8_t c)
 /* Transition lookup tables                                            */
 /* ------------------------------------------------------------------ */
 
-/* Depth 1 → 2: 7-step colour cycle (border: blue→magenta) */
-static const uint8_t t12_attr[]   = { 0x29, 0x21, 0x19, 0x11, 0x0B, 0x0B, 0x0B };
-static const uint8_t t12_border[] = {    1,    1,    1,    3,    3,    3,    3 };
+/* Depth 1 → 2: 7-step colour cycle (border: blue→cyan) */
+static const uint8_t t12_attr[]   = { 0x29, 0x21, 0x19, 0x11, 0x0D, 0x0D, 0x0D };
+static const uint8_t t12_border[] = {    1,    1,    1,    5,    5,    5,    5 };
 #define T12_STEPS 7
 
-/* Depth 2 → 3: 3-step (border: magenta→blue) */
-static const uint8_t t23_attr[]   = { 0x0B, 0x09, 0x01 };
-static const uint8_t t23_border[] = {    3,    1,    1 };
+/* Depth 2 → 3: 3-step (border: cyan→blue, bright on at end) */
+static const uint8_t t23_attr[]   = { 0x0D, 0x09, 0x41 };
+static const uint8_t t23_border[] = {    5,    1,    1 };
 #define T23_STEPS 3
 
-/* Depth 3 → 2: 3-step (border: blue→magenta) */
-static const uint8_t t32_attr[]   = { 0x01, 0x09, 0x0B };
-static const uint8_t t32_border[] = {    1,    3,    3 };
+/* Depth 3 → 2: 3-step (border: blue→cyan, bright off at start) */
+static const uint8_t t32_attr[]   = { 0x41, 0x09, 0x0D };
+static const uint8_t t32_border[] = {    1,    5,    5 };
 #define T32_STEPS 3
 
-/* Depth 2 → 1: 7-step (border: magenta→blue) */
-static const uint8_t t21_attr[]   = { 0x0B, 0x0B, 0x0B, 0x11, 0x19, 0x21, 0x29 };
-static const uint8_t t21_border[] = {    3,    3,    3,    3,    1,    1,    1 };
+/* Depth 2 → 1: 7-step (border: cyan→blue) */
+static const uint8_t t21_attr[]   = { 0x0D, 0x0D, 0x0D, 0x11, 0x19, 0x21, 0x29 };
+static const uint8_t t21_border[] = {    5,    5,    5,    5,    1,    1,    1 };
 #define T21_STEPS 7
 
 /* --- Active transition state --- */

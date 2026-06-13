@@ -162,16 +162,17 @@ void treasure_render(uint8_t frame_ctr)
 {
     uint8_t i, pool_idx;
     const uint8_t *frame_data;
-    uint8_t draw_x, attr;
+    uint8_t draw_x;
     int16_t dx_sub, dz_sub, sx, sy;
 
     /* XOR-erase previous frame's treasure sprites */
+    xor32_attr = depth_get_paper() | (ATTR[0] & 0x07);
     for (i = 0; i < trs_prev_count; i++) {
         if (trs_prev_drawn[i]) {
-            xor_sprite_32(SCREEN, trs_prev_frame[i],
-                          trs_prev_x[i], trs_prev_y[i]);
-            set_attr_rect(trs_prev_x[i] >> 3, trs_prev_y[i] >> 3,
-                          4, 4, depth_get_paper() | (ATTR[0] & 0x07));
+            xor32_spr = trs_prev_frame[i];
+            xor32_x = trs_prev_x[i];
+            xor32_y = trs_prev_y[i];
+            xor_sprite_32_fast();
         }
     }
 
@@ -213,13 +214,15 @@ void treasure_render(uint8_t frame_ctr)
             ? trs_frame2[treasures[i].type]
             : trs_frame1[treasures[i].type];
 
-        attr = depth_get_paper() | 0x07;
+        xor32_attr = depth_get_paper() | 0x07;
 
         /* Byte-align X for drawing */
         draw_x = (uint8_t)sx & 0xF8;
 
-        xor_sprite_32(SCREEN, frame_data, draw_x, (uint8_t)sy);
-        set_attr_rect(draw_x >> 3, (uint8_t)sy >> 3, 4, 4, attr);
+        xor32_spr = frame_data;
+        xor32_x = draw_x;
+        xor32_y = (uint8_t)sy;
+        xor_sprite_32_fast();
 
         trs_prev_x[pool_idx] = draw_x;
         trs_prev_y[pool_idx] = (uint8_t)sy;
@@ -239,12 +242,13 @@ void treasure_render(uint8_t frame_ctr)
 void treasure_hide_all(void)
 {
     uint8_t i;
+    xor32_attr = depth_get_paper() | (ATTR[0] & 0x07);
     for (i = 0; i < trs_prev_count; i++) {
         if (trs_prev_drawn[i]) {
-            xor_sprite_32(SCREEN, trs_prev_frame[i],
-                          trs_prev_x[i], trs_prev_y[i]);
-            set_attr_rect(trs_prev_x[i] >> 3, trs_prev_y[i] >> 3,
-                          4, 4, depth_get_paper() | (ATTR[0] & 0x07));
+            xor32_spr = trs_prev_frame[i];
+            xor32_x = trs_prev_x[i];
+            xor32_y = trs_prev_y[i];
+            xor_sprite_32_fast();
             trs_prev_drawn[i] = 0;
         }
     }

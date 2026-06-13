@@ -59,16 +59,16 @@ static int16_t rand_z(void)
 static void erase_bubble(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
 {
     if (pclose) {
-        unplot(buf, px + 1, py);
-        unplot(buf, px + 2, py);
-        unplot(buf, px,     py + 1);
-        unplot(buf, px + 3, py + 1);
-        unplot(buf, px,     py + 2);
-        unplot(buf, px + 3, py + 2);
-        unplot(buf, px + 1, py + 3);
-        unplot(buf, px + 2, py + 3);
+        plot(buf, px + 1, py);
+        plot(buf, px + 2, py);
+        plot(buf, px,     py + 1);
+        plot(buf, px + 3, py + 1);
+        plot(buf, px,     py + 2);
+        plot(buf, px + 3, py + 2);
+        plot(buf, px + 1, py + 3);
+        plot(buf, px + 2, py + 3);
     } else {
-        unplot(buf, px, py);
+        plot(buf, px, py);
     }
 }
 
@@ -172,7 +172,6 @@ static uint8_t sf_count;
 static uint16_t sf_recip;
 static uint8_t sf_sx;
 static uint8_t sf_phase;     /* 0 or 1: which half of bubbles to project this frame */
-static uint8_t sf_parity;    /* per-bubble: toggles 0/1 each iteration */
 uint8_t sf_cull_y;           /* bubbles with sy < this are culled (0 = no culling) */
 uint8_t sf_cull_y_floor;     /* bubbles with sy > this are culled (0 = no culling) */
 
@@ -214,7 +213,6 @@ void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
     ld  a, (_sf_phase)
     xor 1
     ld  (_sf_phase), a
-    ld  (_sf_parity), a         ; first bubble uses this phase value
 
     ;; Save IX (callee-saved in SDCC convention)
     push ix
@@ -230,9 +228,9 @@ void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
 _sf_loop:
 
     ;; ======== SPLIT-FRAME CHECK (first — off-phase bubbles skip entirely) ========
-    ld  a, (_sf_parity)
-    xor 1
-    ld  (_sf_parity), a
+    ;; Derive parity from loop counter: (count & 1) selects even/odd bubbles.
+    ld  a, (_sf_count)
+    and #1
     ld  b, a
     ld  a, (_sf_phase)
     cp  b
@@ -340,24 +338,23 @@ _sf_z_respawn:
 _sf_z_ok:
 
     ;; ======== ERASE previous screen position ========
-    ld  a, (ix+7)
+    ld  d, (ix+7)               ; D = psy (also needed for plot coords)
+    ld  a, d
     inc a                       ; psy was 255 (PSY_NONE)? → A wraps to 0
     jr  z, _sf_no_erase
     ld  a, (ix+8)               ; pclose
     or  a
     jr  nz, _sf_erase_bubble
 
-    ;; Far bubble: single pixel
-    ld  d, (ix+7)
-    ld  e, (ix+6)
-    call _sf_unplot
+    ;; Far bubble: single pixel (XOR toggles off)
+    ld  e, (ix+6)               ; D already has psy
+    call _sf_plot
     jr  _sf_no_erase
 
 _sf_erase_bubble:
-    ;; 4x4 bubble erase
-    ld  e, (ix+6)
-    ld  d, (ix+7)
-    call _sf_erase_bubble_fn
+    ;; 4x4 bubble erase (XOR toggles off — same as plot)
+    ld  e, (ix+6)               ; D already has psy
+    call _sf_plot_bubble_fn
 
 _sf_no_erase:
 
@@ -400,11 +397,15 @@ _sf_psy_pos:
     call _sf_proj               ; HL = (x * recip) >> 8
     ld  de, 128
     add hl, de
-    ;; Check sx: must have H==0 (sx in [0,255])
+    ;; Check sx: must be in [BF_X_MIN, BF_X_MAX)
     ld  a, h
     or  a
     jp  nz, _sf_offscr
     ld  a, l
+    cp  #BF_X_MAX
+    jp  nc, _sf_offscr
+    cp  #BF_X_MIN
+    jp  c, _sf_offscr
     ld  (_sf_sx), a
 
     ;; Project Y: sy = (y * recip) >> 8 + 96
@@ -456,8 +457,7 @@ _sf_no_cull_f:
 
 _sf_far_plot:
     ld  (ix+8), 0               ; pclose = 0
-    ld  d, (ix+7)
-    ld  e, (ix+6)
+    ;; D = psy, E = psx — still valid from writes above
     call _sf_plot
     jr  _sf_next
 
@@ -521,54 +521,6 @@ _sf_plot:
     pop hl
 
     ;; Toggle pixel (XOR preserves vignette)
-    xor (hl)
-    ld  (hl), a
-    ret
-
-    ;; ================================================================
-    ;; _sf_unplot — toggle pixel at (E, D) on screen
-    ;; Input:  E = x (0-255), D = y (0-191)
-    ;; Destroys: A, BC, HL.  Preserves: DE, IX.
-    ;; ================================================================
-_sf_unplot:
-    ;; Screen address high byte
-    ld  a, d
-    and 0xC0
-    rrca
-    rrca
-    rrca
-    ld  b, a
-    ld  a, d
-    and 0x07
-    or  b
-    or  0x40
-    ld  h, a
-
-    ;; Screen address low byte
-    ld  a, d
-    and 0x38
-    rlca
-    rlca
-    ld  b, a
-    ld  a, e
-    rrca
-    rrca
-    rrca
-    and 0x1F
-    or  b
-    ld  l, a
-
-    ;; Bitmask (inverted for clear)
-    ld  a, e
-    and 0x07
-    ld  c, a
-    ld  b, 0
-    push hl
-    ld  hl, _bit_mask
-    add hl, bc
-    ld  a, (hl)
-    pop hl
-
     xor (hl)
     ld  (hl), a
     ret
@@ -758,117 +710,6 @@ _pb_r3n:
     xor (hl)
     ld  (hl), a
 _pb_r3r:
-    inc de
-    ld  a, (de)
-    or  a
-    ret z
-    inc l
-    xor (hl)
-    ld  (hl), a
-    ret
-
-    ;; ================================================================
-    ;; _sf_erase_bubble_fn — erase 4x4 bubble at (E=x, D=y)
-    ;; Input:  E = x, D = y
-    ;; Destroys: A, B, C, D, E, H, L.  Preserves: IX.
-    ;; ================================================================
-_sf_erase_bubble_fn:
-    ld  a, e
-    and 0x07
-    add a, a
-    ld  (_sf_bub_off), a
-
-    call _sf_scr_addr
-
-    ;; --- Row 0: type A (.##.) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_a
-    add a, e
-    ld  e, a
-    jr  nc, _eb_r0n
-    inc d
-_eb_r0n:
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r0r
-    xor (hl)
-    ld  (hl), a
-_eb_r0r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r0d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_eb_r0d:
-    call _sf_next_row
-
-    ;; --- Row 1: type B (#..#) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_b
-    add a, e
-    ld  e, a
-    jr  nc, _eb_r1n
-    inc d
-_eb_r1n:
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r1r
-    xor (hl)
-    ld  (hl), a
-_eb_r1r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r1d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_eb_r1d:
-    call _sf_next_row
-
-    ;; --- Row 2: type B (#..#) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_b
-    add a, e
-    ld  e, a
-    jr  nc, _eb_r2n
-    inc d
-_eb_r2n:
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r2r
-    xor (hl)
-    ld  (hl), a
-_eb_r2r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r2d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_eb_r2d:
-    call _sf_next_row
-
-    ;; --- Row 3: type A (.##.) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_a
-    add a, e
-    ld  e, a
-    jr  nc, _eb_r3n
-    inc d
-_eb_r3n:
-    ld  a, (de)
-    or  a
-    jr  z, _eb_r3r
-    xor (hl)
-    ld  (hl), a
-_eb_r3r:
     inc de
     ld  a, (de)
     or  a

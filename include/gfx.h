@@ -35,6 +35,12 @@ void xor_sprite_32(uint8_t *buf, const uint8_t *spr,
 void set_attr_rect(uint8_t col, uint8_t row, uint8_t w, uint8_t h,
                    uint8_t attr);
 
+/* Fast XOR 32x32 sprite + set 4x4 attr rect (Z80 asm).
+ * Set these globals, then call xor_sprite_32_fast(). */
+extern uint8_t xor32_x, xor32_y, xor32_attr;
+extern const uint8_t *xor32_spr;
+void xor_sprite_32_fast(void);
+
 /* Print a null-terminated string at character position (col, row)
  * using the ROM font. Does not set attributes. */
 void print_at(uint8_t col, uint8_t row, const char *s);
