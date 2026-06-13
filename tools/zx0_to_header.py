@@ -20,7 +20,9 @@ def main():
             data = f.read()
         entries.append((name, data))
 
-    guard = "_GOO_DATA_H_"
+    import os
+    base = os.path.basename(dst).replace(".", "_").upper()
+    guard = f"_{base}_"
     with open(dst, "w") as f:
         f.write(f"#ifndef {guard}\n#define {guard}\n\n")
         for name, data in entries:

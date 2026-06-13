@@ -108,6 +108,7 @@ static void print_num(uint8_t col, uint8_t row, uint8_t val)
 static void vignette_load(void)
 {
     dzx0_decompress(vignette_zx0, SCREEN);
+    memset(ATTR, depth_get_attr(current_depth), ATTR_GAME_SZ);
 }
 
 static void screen_clear(uint8_t attr, uint8_t border)
@@ -254,8 +255,9 @@ static game_state_t state_game_init(void)
     /* Initialise HUD pixel patterns */
     hud_init();
 
-    /* Reset minimap update timer */
+    /* Reset minimap update timer and draw initial depth bar */
     minimap_init();
+    depth_indicator_init();
 
     /* Sea line and sea floor */
     sealine_init();

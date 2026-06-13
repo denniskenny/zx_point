@@ -92,18 +92,20 @@ static uint8_t player_predator_overlap(void)
     return 0;
 }
 
-void minimap_init(void)
+void depth_indicator_init(void)
 {
     uint8_t y;
 
-    mm_prev_gx = 0xFF;  /* force first draw */
-    mm_prev_gz = 0xFF;
-    mm_prev_gy = 0xFF;
-
-    /* Draw full depth bar (surface = 32 rows filled) */
     for (y = 0; y < 32; y++)
         SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
     depth_prev_bar_h = 32;
+}
+
+void minimap_init(void)
+{
+    mm_prev_gx = 0xFF;  /* force first draw */
+    mm_prev_gz = 0xFF;
+    mm_prev_gy = 0xFF;
 }
 
 void minimap_draw(void)
@@ -184,7 +186,7 @@ void depth_indicator_draw(void)
     uint8_t paper_attr;
 
     depth_val = player.sub_z + (uint16_t)CUBE_SUB_Z * player.gy;
-    paper_attr = depth_get_paper() | 0x07;
+    paper_attr = 0x3E;  /* white paper, yellow ink */
 
 #define DEPTH_BAR_SCALE (31 * 1024 / (CUBE_SUB_Z * GRID_D))
     if (depth_val >= (uint16_t)CUBE_SUB_Z * GRID_D)
@@ -193,18 +195,15 @@ void depth_indicator_draw(void)
         bar_h = 32 - (uint8_t)(((uint16_t)depth_val * DEPTH_BAR_SCALE) >> 10);
 
     prev_empty = 32 - depth_prev_bar_h;
-    new_empty = 32 - bar_h;
 
     if (bar_h != depth_prev_bar_h) {
-        if (bar_h < depth_prev_bar_h) {
-            /* Bar shrinking: XOR off exposed rows */
-            for (y = prev_empty; y < new_empty; y++)
-                SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
-        } else {
-            /* Bar growing: XOR on new rows */
-            for (y = new_empty; y < prev_empty; y++)
-                SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
-        }
+        /* XOR off the old bar (restores background) */
+        for (y = prev_empty; y < 32; y++)
+            SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
+        /* XOR on the new bar */
+        new_empty = 32 - bar_h;
+        for (y = new_empty; y < 32; y++)
+            SCREEN[depth_scr[y]] ^= DEPTH_BAR_MASK;
         depth_prev_bar_h = bar_h;
     }
 

@@ -12,6 +12,7 @@
 #define ATTR     ((uint8_t *)0x5800)
 #define PIX_SIZE 6144
 #define ATTR_SZ  768
+#define ATTR_GAME_SZ (20 * 32)  /* top 20 char rows — excludes status area */
 
 /* --- Keyboard half-row port addresses --- */
 /* Q=Forward(into screen) */
@@ -96,7 +97,7 @@
 #define OXYGEN_DRAIN_RATE  (TIME_LIMIT_FRAMES / OXYGEN_MAX)  /* 90 frames */
 
 /* --- HUD layout (character coordinates) --- */
-#define HUD_ROW  23
+#define HUD_ROW  21
 
 /* --- Minimap layout (character coordinates) --- */
 #define MINIMAP_ROW  20

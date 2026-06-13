@@ -8,6 +8,9 @@
 /* Reset the minimap update timer. Call once at game/level start. */
 void minimap_init(void);
 
+/* XOR-draw the initial full depth bar. Call once at game start. */
+void depth_indicator_init(void);
+
 /* Draw the minimap: 4x4 grid, player dot (yellow), item dots (red).
  * Updates on cell boundary crossings.
  * Uses XOR writes for dots over the grid.
