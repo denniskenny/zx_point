@@ -64,19 +64,27 @@ include/log_item.h: assets/log.zxp tools/zxp2header.py
 include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 2 --name minimap_grid
 
-# GOO anglerfish frames (cropped + ZX0 compressed)
-GOO_SRCS = assets/goo_1.scr assets/goo_3.scr assets/goo_5.scr assets/goo_6.scr
-include/goo_data.h: $(GOO_SRCS) tools/scr_crop_zx0.py
+# GOO anglerfish: dither source → 4 reveal frames → crop + ZX0 compress
+GOO_SRC = assets/angler_5.scr
+include/goo_data.h: $(GOO_SRC) tools/scr_dither_reveal.py tools/scr_crop_zx0.py
+	$(PYTHON) tools/scr_dither_reveal.py $(GOO_SRC) assets/goo
 	$(SCR_CROP_ZX0) --mirror $@ $(ZX0) \
 		goo_frame1:assets/goo_1.scr goo_frame2:assets/goo_3.scr \
 		goo_frame3:assets/goo_5.scr goo_frame4:assets/goo_6.scr
+
+# Vignette (full 6912-byte .scr → ZX0 compressed C header)
+include/vignette.h: assets/vignette.scr tools/zx0_to_header.py
+	rm -f /tmp/vignette.zx0
+	$(ZX0) $< /tmp/vignette.zx0
+	$(PYTHON) tools/zx0_to_header.py $@ vignette_zx0:/tmp/vignette.zx0
 
 GENERATED_HEADERS = include/diver.h \
     include/ray.h include/shark.h \
     include/statue.h include/tablet.h include/altar.h \
     include/firstaid.h include/oxygen_tank.h include/map_item.h include/log_item.h \
     include/minimap_grid.h \
-    include/goo_data.h
+    include/goo_data.h \
+    include/vignette.h
 
 # --- Source files (multi-file build) ---
 SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \

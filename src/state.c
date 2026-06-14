@@ -542,7 +542,7 @@ static game_state_t state_game_tick(void)
 /* 8-step colour cycle: bright white → yellow → cyan → green →
  * magenta → red → blue → black.  ~6 frames per step = 48 frames. */
 static const uint8_t death_attrs[8] = {
-    0x7F, 0x76, 0x6D, 0x64, 0x5B, 0x52, 0x49, 0x00
+    0x78, 0x70, 0x68, 0x60, 0x58, 0x50, 0x48, 0x00
 };
 static const uint8_t death_borders[8] = {
     7, 6, 5, 4, 3, 2, 1, 0
@@ -729,6 +729,7 @@ _wr_row:
 _wr_left:
     ld      a, 0(ix)
     inc     ix
+    xor     (hl)
     ld      (hl), a
     inc     hl
     djnz    _wr_left
@@ -751,6 +752,7 @@ _wr_right:
     ld      l, a                    ; table index
     ld      a, (hl)                 ; bit-reversed byte
     ex      de, hl                  ; HL=screen, DE=table
+    xor     (hl)
     ld      (hl), a
     dec     hl
     ex      de, hl                  ; DE=screen-1, HL=table
@@ -778,6 +780,8 @@ static game_state_t state_goo_death_init(void)
     init_bit_rev();
     dzx0_decompress(goo_frames[0], SCRATCH_BUF);
     write_crop_to_screen();
+    sprites_player_draw(0);
+    sprites_player_set_colour(depth_get_paper() | 0x06);
 
     sfx_play_note(30, 255);
 
@@ -795,8 +799,11 @@ static game_state_t state_goo_death_tick(void)
 
         goo_timer = 0;
 
+        write_crop_to_screen();
         dzx0_decompress(goo_frames[goo_step], SCRATCH_BUF);
         write_crop_to_screen();
+        sprites_player_draw(0);
+        sprites_player_set_colour(depth_get_paper() | 0x06);
 
         if (goo_step < 2)
             sfx_play_note(20, (uint8_t)(255 - goo_step * 60));

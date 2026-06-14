@@ -186,7 +186,7 @@ void depth_indicator_draw(void)
     uint8_t paper_attr;
 
     depth_val = player.sub_z + (uint16_t)CUBE_SUB_Z * player.gy;
-    paper_attr = 0x3E;  /* white paper, yellow ink */
+    paper_attr = 0x46;  /* bright black paper, yellow ink */
 
 #define DEPTH_BAR_SCALE (31 * 1024 / (CUBE_SUB_Z * GRID_D))
     if (depth_val >= (uint16_t)CUBE_SUB_Z * GRID_D)
