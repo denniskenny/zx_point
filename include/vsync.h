@@ -2,13 +2,24 @@
 #define _VSYNC_H_
 
 /* ================================================================== */
-/* vsync.h — Vsync / flicker avoidance                                */
+/* vsync.h — Floating bus vsync with model auto-detection             */
 /* ================================================================== */
 
-/* Wait for the vertical blanking interval.
- * Uses the floating bus technique when available,
- * falls back to HALT for emulators that don't support it.
- * Safe on both 48K and 128K. */
+#include <stdint.h>
+
+/* 0 = HALT fallback, 1 = 48K floating bus, 2 = +2A/+3 floating bus */
+extern uint8_t vsync_mode;
+
+/* Detect which floating bus technique works on this machine.
+ * Call once at startup, after hw_detect() and BEFORE locking
+ * paging (port 0x7FFD bit 5) if +2A/+3 support is desired. */
+void vsync_detect(void) __naked;
+
+/* Wait for the beam to reach the sync marker near the bottom of
+ * the active display.  Returns with ~28 000 T-states available
+ * before the beam re-enters the top of the display area.
+ * Falls back to HALT (~14 000 T available) when the floating bus
+ * is not supported. */
 void vsync_wait(void) __naked;
 
 #endif /* _VSYNC_H_ */

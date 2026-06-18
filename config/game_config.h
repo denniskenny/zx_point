@@ -29,7 +29,7 @@
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 Fire=4 */
 
 /* --- Bubblefield parameters --- */
-#define NUM_BUBBLES  56
+#define NUM_BUBBLES  45
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -47,12 +47,12 @@
 #define GRID_H  32
 
 /* --- Depth-level bubble counts --- */
-#define BUBBLES_DEPTH1  56
-#define BUBBLES_DEPTH2  44
-#define BUBBLES_DEPTH3  36
+#define BUBBLES_DEPTH1  45
+#define BUBBLES_DEPTH2  35
+#define BUBBLES_DEPTH3  29
 
 /* --- Distances (in cube units) --- */
-#define CUBE_DISTANCE     1    /* placeholder — calibrate to 10s traverse */
+#define CUBE_DISTANCE     32   /* frames to cross 1 cube at max horizontal speed */
 #define CONTACT_DISTANCE  2    /* X/Y proximity for treasure pickup */
 #define TREASURE_VISIBLE_RANGE  4  /* grid cells: sprite appears when within range */
 
@@ -70,7 +70,7 @@
 /* --- Speed divisors --- */
 /* Effective speed = SPEED / divisor.                               */
 /* Higher values = slower.  1 = full speed, 4 = quarter speed.     */
-#define PLAYER_SPEED_DIV    4
+#define PLAYER_SPEED_DIV    6
 #define PLAYER_DEPTH_DIV    3   /* depth ascend/descend (~30% faster than XY) */
 #define BUBBLE_DRIFT_FRAMES 64  /* frames per velocity step when coasting to stop */
 
@@ -111,9 +111,12 @@
 #define VIEW_W       256
 #define VIEW_H       (MINIMAP_ROW * 8)   /* 160 */
 
-/* Horizontal bubble clipping — ~16% inset on each side */
-#define BF_X_MIN     42
-#define BF_X_MAX     214   /* exclusive: sx < 214 to pass */
+/* Horizontal bubble clipping — ~20% inset on each side */
+#define BF_X_MIN     50
+#define BF_X_MAX     206   /* exclusive: sx < 206 to pass */
+
+/* Depth LOD cull — bubbles at z >= this skip projection entirely */
+#define BF_Z_CULL    160
 
 /* --- Predator types --- */
 #define PRED_RAY    0

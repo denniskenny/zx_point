@@ -1,14 +1,22 @@
 /*
  * main.c — Entry point for ZX Point
  *
- * Detects hardware, then hands off to the state machine.
+ * Detects hardware and floating bus before locking paging,
+ * then hands off to the state machine.
  */
 
 #include "../include/hw.h"
+#include "../include/vsync.h"
 #include "../include/state.h"
 
 int main(void)
 {
+    /* Detect hardware BEFORE locking paging — the 128K bank-
+       switching test and +2A/+3 floating bus both need paging
+       enabled to work. */
+    hw_detect();
+    vsync_detect();
+
     /* Lock 128K paging to 48K-compatible mode.
        Harmless on 48K (port 0x7FFD not decoded). */
     __asm
@@ -17,7 +25,6 @@ int main(void)
     out (c), a
     __endasm;
 
-    hw_detect();
     state_run();
     return 0;
 }

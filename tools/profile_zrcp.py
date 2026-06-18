@@ -188,7 +188,7 @@ WAYPOINTS = [
     "_hud_draw",
     "_minimap_draw",
     "_depth_indicator_draw",
-    "_read_keys",
+    "_scan_input",
     "_player_update",
     "_predators_update",
     "_depth_transition_tick",

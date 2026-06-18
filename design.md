@@ -28,6 +28,7 @@ A / Joystick Down   - Move Backward (out of screen)
 O / Joystick Left   - Move Left
 P / Joystick Right  - Move Right
 Z / Fire Button 1   - Descend
+X / Fire Button 2   - Ascend
 
 By default the diver will gradually increase velocity to a maximum speed vertically. This can be countered by pressing Descend. To avoid ending the game instantly, the diver must begin the game at the bottom of the first subcube.
 
@@ -186,9 +187,18 @@ The Sonar Ping should always override any other sound effects.
 
 Music is never played in the game state, when the Sonar Ping effect is used.
 
-Sonar ping distance mapping — it gets louder and more frequent using a configurable exponential curve. It should be calculated using the cube_distance constant from the Game Space section of the document.
+##### Sonar Targeting
+The sonar tracks only the single closest object to the player at the same depth level. Objects on different depth levels are ignored. If a treasure is 3 cubes away on depth 1 and a shark is 5 cubes away on depth 1, only the treasure is tracked. If the shark is on depth 2 and the player is on depth 1, the shark is not tracked at all.
 
-The range in cubes should also be configurable, the sound should start with a ping every 2 seconds at 10 cubes, increasing over distance to every 0.25 seconds at 1 cube away. 
+The target type determines the sonar pitch:
+* Treasure — highest pitch (delay 15). The player's primary navigation aid.
+* Predator (ray or shark) — medium pitch (delay 25). Warning of nearby danger.
+* Great Old One — lowest pitch (delay 40). Ominous warning of lethal threat.
+
+The pitch change allows the player to distinguish what they are approaching by ear alone, which is critical since GOOs are invisible.
+
+##### Distance Mapping
+Sonar ping frequency increases as the player approaches the target using a quadratic curve. The range in cubes is configurable (SONAR_RANGE_FAR, default 10). The ping interval ranges from every 2 seconds at 10 cubes away (SONAR_INTERVAL_FAR=100 frames) to every 0.25 seconds at 1 cube away (SONAR_INTERVAL_NEAR=12 frames). 
 
 
 #### Additional sound effects
@@ -218,13 +228,38 @@ The game should have a start up function to detect if it is running in 128k mode
 ### Screen Space
 The 3d space will consist of a starfield background and animated sprite of the player in the centre of the screen. 
 
-Treasure, Sharks and Rays will be rendered as 2d 32x32 pixel sprites when they are within TREASURE_VISIBLE_RANGE / PRED_VISIBLE_RANGE (4 grid cells) at the same depth as the player. Their screen position is computed dynamically from the grid distance plus sub-cube offset relative to the diver, creating smooth parallax movement.
-
 The player will be rendered as a 2d 16x16 pixel sprite in the centre of the screen. 
 
 When the player moves, the player sprite stays in the same position and the starfield and other sprites move to create the illusion of movement.
 
 The 3d space occupies the top 160 pixel rows of the screen (char rows 0-19). The bottom 32 rows (char rows 20-23, pixels y 160-191) are reserved for the HUD gauges and minimap. The starfield engine viewport height is capped at 160 so no per-pixel bounds testing is needed for the HUD/minimap region.
+
+#### Treasure and Predator 3D Positioning
+Treasures and predators are rendered using all three world axes mapped to screen coordinates:
+
+* **X axis** (grid X distance from player) → **Screen X position**. Objects to the player's left appear on the left of the screen and vice versa. Computed from the sub-cube X offset between the player and the object. This is the same as the existing behaviour.
+
+* **Y axis** (depth) → **Screen Y position**. Objects are pinned to their depth-level environmental feature:
+  - Depth 0 (surface): Flotsam treasures and rays render on or near the sea line Y position.
+  - Depth 1 (mid-water): Sharks render at a screen Y derived from the player's sub_z position within the current cube, centred vertically in the viewport.
+  - Depth 2 (sea floor): Archaeological treasures and GOOs render at the sea floor line Y position.
+
+* **Z axis** (grid Z distance, forward/backward into screen) → **Sprite scale**. Objects further away in Z appear smaller, using pre-calculated scaled sprite variants. There are four scale levels, selected by Chebyshev distance in Z from the player:
+  - **Close** (0-1 cubes): Full 32x32 sprite — maximum detail.
+  - **Medium** (2 cubes): 16x16 scaled sprite — half size.
+  - **Small** (3 cubes): 8x8 scaled sprite — quarter size.
+  - **Far** (4+ cubes): 4x4 pixel block — a single coloured block using the appropriate attribute (green for predators, white for treasure). This is a common graphic shared by all predator and treasure types.
+
+This replaces the previous system where Z distance was mapped to screen Y position. The new model gives a clearer sense of depth: objects approach from the distance and grow larger, matching the bubblefield's existing perspective model.
+
+#### Sprite Scaling Pipeline
+The 16x16 and 8x8 scaled variants are pre-calculated at build time from the 32x32 source sprites using nearest-neighbour downsampling. This is a Makefile task (`make assets`) that runs a Python tool over each sprite's .zxp asset:
+
+* Input: 32x32 sprite frames (from .zxp files)
+* Output: Additional frame arrays in the generated C headers (e.g. `statue_f1_16`, `statue_f1_8`)
+* The 4x4 far block requires no per-sprite asset — it is a hardcoded pixel pattern with the appropriate colour attribute set at runtime.
+
+The scaling tool must preserve the 1-pixel mask border at each scale level to prevent pixel bleeding against the background.
 
 ### Game Space
 The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre subcube, grid position (16,16). To avoid ending the game instantly, the diver must begin the game at the bottom of the this subcube.
@@ -281,13 +316,42 @@ The grid image for the minimap (with colour attributes) is stored at assets/mini
 * Flotsam Treasure Sprites should have two frames, the second of which has every second scanline offset by 1 pixel.
 * Sprite attributes will be determined by the depth level, except for the player sprite, which will always have yellow ink, and yellow ink bright in the top left character.
 * There is no sprite cap.
+* Each predator and treasure sprite has three scale variants generated at build time from the 32x32 source: full (32x32), medium (16x16), and small (8x8). A fourth common 4x4 block is used for all objects at maximum visible range. See "Sprite Scaling Pipeline" in Screen Space for details.
 
 ## Graphics
 
-* The Great Old One will be stored as a single stacked .zxp file, with the possibility of adding extra frames, if memory allows.
-* The Boat, Great Old one and Title Logo graphics should be stored as ZX-Paintbrush ZXP files and converted to C header files with static const unsigned char at build time. The attribute values should also be stored. This requires the ZX0 compressor binary at build time
-* The pipeline is: .zxp → raw bytes → ZX0 compress → C array
+* The Boat and Title Logo graphics should be stored as ZX-Paintbrush ZXP files and converted to C header files with static const unsigned char at build time. The attribute values should also be stored. This requires the ZX0 compressor binary at build time
+* The standard pipeline is: .zxp → raw bytes → ZX0 compress → C array
 * The same Boat graphic will be used on all screens, positioned in the correct part of the screen.
+
+### Great Old One (GOO) Rendering Pipeline
+
+The GOO is a large angler fish face (approximately 20×20 characters) rendered as a death animation when the player enters its grid cell at depth 2. Because of its size, it uses a dedicated asset pipeline that stores only the left half of each frame and reconstructs the right half at runtime via bit-reversal mirroring.
+
+#### Build-time pipeline
+
+1. **Source:** `assets/angler_5.scr` — a full 256×192 ZX Spectrum screen file containing the GOO artwork, vertically symmetric about a centre column.
+2. **Dithered reveal frames:** `tools/scr_dither_reveal.py` generates 6 progressively-dithered frames from the source, simulating the GOO emerging from darkness.
+3. **Crop and compress:** `tools/scr_crop_zx0.py --mirror` processes each frame:
+   - Auto-detects the bounding box of non-zero pixel data
+   - Stores only the **left half** of the bounding box (columns left of the mirror axis)
+   - ZX0-compresses each cropped half-frame
+4. **Generated header:** 4 of the 6 frames are selected and output as `include/goo_data.h`, containing:
+   - 4 ZX0-compressed byte arrays (one per animation frame)
+   - Crop constants: `GOO_CROP_COL`, `GOO_CROP_ROW`, `GOO_CROP_W`, `GOO_CROP_H`, `GOO_CROP_SIZE`
+   - Mirror column: `GOO_MIRROR_COL` (character column of the symmetry axis)
+   - Draw position: `GOO_DRAW_COL`, `GOO_DRAW_ROW`, `GOO_DRAW_END_Y`
+
+#### Runtime rendering (in `src/state.c`)
+
+1. **Decompress:** `dzx0_decompress()` expands the current frame's ZX0 data into a scratch buffer at `0x6000` (below the code origin at `0x8000`).
+2. **Bit-reversal table:** `init_bit_rev()` builds a 256-byte lookup table at `0x6900` that maps each byte to its bit-reversed equivalent (e.g. `0b10110000` → `0b00001101`). Built once at the start of the death animation.
+3. **XOR blit:** `write_crop_to_screen()` is a naked assembly routine that:
+   - Writes the decompressed left half directly to screen RAM using `scr_off()` for address calculation
+   - For each row, also writes the **bit-reversed** bytes to the corresponding right-half columns, producing a mirrored copy
+   - Uses XOR writes so the same routine can erase the previous frame before drawing the next
+
+This half-storage approach halves the compressed data size for the GOO frames while producing the full symmetric face at runtime. The bit-reversal XOR blit is fast enough to animate the 4-frame death sequence without visible delay.
 
 ### The 3 Layers of Depth
 

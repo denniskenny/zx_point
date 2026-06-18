@@ -13,6 +13,7 @@
 #include "../include/gfx.h"
 #include "../include/depth.h"
 #include "../include/sound.h"
+#include "../include/entity_render.h"
 
 /* --- Treasure sprite assets (32x32, 2 frames each) --- */
 #include "../include/statue.h"
@@ -42,23 +43,34 @@ static uint8_t treasure_rand(void)
     return (uint8_t)((t_lfsr ^ t_weyl) & 0xFF);
 }
 
-/* --- Sprite frame lookup tables (indexed by treasure type) --- */
-static const uint8_t * const trs_frame1[TREASURE_TYPE_COUNT] = {
+/* --- Sprite frame lookup tables (indexed by treasure type, per scale) --- */
+static const uint8_t * const trs_f1_32[TREASURE_TYPE_COUNT] = {
     statue_f1, tablet_f1, altar_f1,
     firstaid_f1, oxygen_tank_f1, map_item_f1, log_item_f1
 };
-static const uint8_t * const trs_frame2[TREASURE_TYPE_COUNT] = {
+static const uint8_t * const trs_f2_32[TREASURE_TYPE_COUNT] = {
     statue_f2, tablet_f2, altar_f2,
     firstaid_f2, oxygen_tank_f2, map_item_f2, log_item_f2
 };
+static const uint8_t * const trs_f1_16[TREASURE_TYPE_COUNT] = {
+    statue_f1_16, tablet_f1_16, altar_f1_16,
+    firstaid_f1_16, oxygen_tank_f1_16, map_item_f1_16, log_item_f1_16
+};
+static const uint8_t * const trs_f2_16[TREASURE_TYPE_COUNT] = {
+    statue_f2_16, tablet_f2_16, altar_f2_16,
+    firstaid_f2_16, oxygen_tank_f2_16, map_item_f2_16, log_item_f2_16
+};
+static const uint8_t * const trs_f1_8[TREASURE_TYPE_COUNT] = {
+    statue_f1_8, tablet_f1_8, altar_f1_8,
+    firstaid_f1_8, oxygen_tank_f1_8, map_item_f1_8, log_item_f1_8
+};
+static const uint8_t * const trs_f2_8[TREASURE_TYPE_COUNT] = {
+    statue_f2_8, tablet_f2_8, altar_f2_8,
+    firstaid_f2_8, oxygen_tank_f2_8, map_item_f2_8, log_item_f2_8
+};
 
-/* --- Previous draw position tracking for erase --- */
-#define MAX_VISIBLE_TREASURES 2
-static uint8_t trs_prev_x[MAX_VISIBLE_TREASURES];
-static uint8_t trs_prev_y[MAX_VISIBLE_TREASURES];
-static const uint8_t *trs_prev_frame[MAX_VISIBLE_TREASURES];
-static uint8_t trs_prev_drawn[MAX_VISIBLE_TREASURES];
-static uint8_t trs_prev_count;
+/* --- Entity pool for draw/erase tracking --- */
+static entity_pool_t trs_pool;
 
 /* --- Global data --- */
 treasure_t treasures[MAX_TREASURES];
@@ -148,127 +160,65 @@ void treasure_check_collection(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Treasure rendering (direct screen writes, same pattern as predators) */
+/* Treasure rendering via shared entity renderer                       */
 /* ------------------------------------------------------------------ */
 void treasure_init_render(void)
 {
-    uint8_t i;
-    for (i = 0; i < MAX_VISIBLE_TREASURES; i++)
-        trs_prev_drawn[i] = 0;
-    trs_prev_count = 0;
+    entity_pool_init(&trs_pool);
+}
+
+static const uint8_t *trs_pick_frame(uint8_t type, uint8_t scale,
+                                     uint8_t frame_ctr)
+{
+    uint8_t f2 = (frame_ctr & 0x08) ? 1 : 0;
+    switch (scale) {
+    case SCALE_32: return f2 ? trs_f2_32[type] : trs_f1_32[type];
+    case SCALE_16: return f2 ? trs_f2_16[type] : trs_f1_16[type];
+    case SCALE_8:  return f2 ? trs_f2_8[type]  : trs_f1_8[type];
+    default:       return (void *)0;
+    }
 }
 
 void treasure_render(uint8_t frame_ctr)
 {
-    uint8_t i, pool_idx;
-    const uint8_t *frame_data;
-    uint8_t draw_x;
-    int16_t dx_sub, dz_sub, sx, sy;
+    uint8_t i, scale;
+    int8_t dgx, dgz;
+    int16_t dx_sub;
+    uint8_t sx, attr;
 
-    /* XOR-erase previous frame's treasure sprites */
-    xor32_attr = depth_get_paper() | (ATTR[0] & 0x07);
-    for (i = 0; i < trs_prev_count; i++) {
-        if (trs_prev_drawn[i]) {
-            xor32_spr = trs_prev_frame[i];
-            xor32_x = trs_prev_x[i];
-            xor32_y = trs_prev_y[i];
-            xor_sprite_32_fast();
-        }
-    }
+    entity_pool_erase(&trs_pool);
 
-    pool_idx = 0;
+    attr = depth_get_paper() | 0x07;
 
-    for (i = 0; i < level.treasure_count && pool_idx < MAX_VISIBLE_TREASURES; i++) {
+    for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
+        if (treasures[i].gy != player.gy) continue;
 
-        /* Visible when within TREASURE_VISIBLE_RANGE and same depth */
-        {
-            int8_t dgx = (int8_t)(player.gx - treasures[i].gx);
-            int8_t dgz = (int8_t)(player.gz - treasures[i].gz);
-            if (dgx < 0) dgx = -dgx;
-            if (dgz < 0) dgz = -dgz;
-            if (dgx > TREASURE_VISIBLE_RANGE ||
-                dgz > TREASURE_VISIBLE_RANGE ||
-                treasures[i].gy != player.gy)
-                continue;
-        }
+        dgx = (int8_t)(player.gx - treasures[i].gx);
+        dgz = (int8_t)(player.gz - treasures[i].gz);
+        if (dgx < 0) dgx = -dgx;
+        if (dgz < 0) dgz = -dgz;
 
-        /* Screen position from grid distance + sub-cube offset.
-         * Centre a 32px sprite on the 16px diver when at same cell. */
+        if (dgx > TREASURE_VISIBLE_RANGE) continue;
+
+        scale = entity_z_to_scale((uint8_t)dgz);
+        if (scale == SCALE_NONE) continue;
+
         dx_sub = (int16_t)(treasures[i].gx - player.gx) * CUBE_SUB_XY
                  + ((CUBE_SUB_XY / 2) - player.sub_x);
-        dz_sub = (int16_t)(treasures[i].gz - player.gz) * CUBE_SUB_XY
-                 + ((CUBE_SUB_XY / 2) - player.sub_y);
+        sx = entity_screen_x(dx_sub);
 
-        sx = (DIVER_X - 8) - (dx_sub * 3 / 4);
-        sy = (DIVER_Y - 8) - (dz_sub * 3 / 4);
-
-        /* Clamp to play area */
-        if (sx < PRED_X_MIN) sx = PRED_X_MIN;
-        if (sx > PRED_X_MAX) sx = PRED_X_MAX;
-        if (sy < PRED_Y_MIN) sy = PRED_Y_MIN;
-        if (sy > PRED_Y_MAX) sy = PRED_Y_MAX;
-
-        /* Select frame: alternate normal/shimmer every 8 frames */
-        frame_data = (frame_ctr & 0x08)
-            ? trs_frame2[treasures[i].type]
-            : trs_frame1[treasures[i].type];
-
-        xor32_attr = depth_get_paper() | 0x07;
-
-        /* Byte-align X for drawing */
-        draw_x = (uint8_t)sx & 0xF8;
-
-        xor32_spr = frame_data;
-        xor32_x = draw_x;
-        xor32_y = (uint8_t)sy;
-        xor_sprite_32_fast();
-
-        trs_prev_x[pool_idx] = draw_x;
-        trs_prev_y[pool_idx] = (uint8_t)sy;
-        trs_prev_frame[pool_idx] = frame_data;
-        trs_prev_drawn[pool_idx] = 1;
-
-        pool_idx++;
+        if (!entity_pool_draw(&trs_pool, sx, env_entity_y, scale,
+                              trs_pick_frame(treasures[i].type, scale, frame_ctr),
+                              attr))
+            break;
     }
 
-    /* Mark remaining pool slots as not drawn */
-    for (; pool_idx < MAX_VISIBLE_TREASURES; pool_idx++)
-        trs_prev_drawn[pool_idx] = 0;
-
-    trs_prev_count = pool_idx;
+    entity_pool_cleanup_attrs(&trs_pool);
 }
 
 void treasure_hide_all(void)
 {
-    uint8_t i;
-    xor32_attr = depth_get_paper() | (ATTR[0] & 0x07);
-    for (i = 0; i < trs_prev_count; i++) {
-        if (trs_prev_drawn[i]) {
-            xor32_spr = trs_prev_frame[i];
-            xor32_x = trs_prev_x[i];
-            xor32_y = trs_prev_y[i];
-            xor_sprite_32_fast();
-            trs_prev_drawn[i] = 0;
-        }
-    }
-    trs_prev_count = 0;
-}
-
-uint8_t treasure_nearest_distance(void)
-{
-    uint8_t i, best = 255;
-    int8_t dx, dz;
-    uint8_t d;
-
-    for (i = 0; i < level.treasure_count; i++) {
-        if (treasures[i].collected) continue;
-        dx = (int8_t)(player.gx - treasures[i].gx);
-        dz = (int8_t)(player.gz - treasures[i].gz);
-        if (dx < 0) dx = -dx;
-        if (dz < 0) dz = -dz;
-        d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
-        if (d < best) best = d;
-    }
-    return best;
+    entity_pool_erase(&trs_pool);
+    entity_pool_cleanup_attrs(&trs_pool);
 }

@@ -40,6 +40,9 @@ void predators_erase(void);
 /* XOR-draw visible predators (call after background) */
 void predators_draw(uint8_t frame_ctr);
 
+/* Reset old-position attrs to background (call after predators_draw) */
+void predators_cleanup_attrs(void);
+
 /* Check player-predator overlap.
  * Returns: 0 = none, 1 = ray/shark damage, 255 = GOO instant death */
 uint8_t predators_check_collision(void);

@@ -5,8 +5,10 @@
 /* sound.h — Non-blocking beeper sound effects                        */
 /* ================================================================== */
 
-/* Start a sonar ping (tone + 3 echoes, spread across frames). */
-void beep_ping_start(void);
+/* Sonar target types (higher = lower pitch) */
+#define SONAR_TREASURE  0
+#define SONAR_PREDATOR  1
+#define SONAR_GOO       2
 
 /* Advance the sound state machine. Call once per frame. */
 void beep_tick(void);
@@ -26,8 +28,8 @@ void sfx_collect_jingle(void);
 void sfx_damage_jingle(void);
 
 /* Distance-based sonar ping. Call once per frame with the Chebyshev
- * distance to the nearest target (1-10), or 0/255 for out of range.
- * Manages its own countdown; triggers beep_ping_start when due. */
-void sonar_update(uint8_t dist);
+ * distance to the nearest same-depth target (1-10), or 0/255 for none.
+ * type: SONAR_TREASURE, SONAR_PREDATOR, or SONAR_GOO — controls pitch. */
+void sonar_update(uint8_t dist, uint8_t type);
 
 #endif /* _SOUND_H_ */

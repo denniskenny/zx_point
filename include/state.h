@@ -8,6 +8,7 @@
 typedef enum {
     STATE_TITLE,
     STATE_INTRO,
+    STATE_LEVEL_INTRO,
     STATE_GAME,
     STATE_SUMMARY,
     STATE_GAMEOVER,

@@ -142,6 +142,36 @@ def pixels_to_sp1(pixel_lines, width, height):
     return result
 
 
+def downscale_bytes(data, src_w, src_h, factor):
+    """Nearest-neighbour downscale of packed pixel bytes.
+
+    src_w/src_h in pixels.  factor=2 gives half-size, factor=4 gives quarter.
+    Returns packed bytes for the smaller sprite.
+    """
+    dst_w = src_w // factor
+    dst_h = src_h // factor
+    src_bpr = src_w // 8
+    dst_bpr = max(dst_w // 8, 1)
+    out = []
+    for dy in range(dst_h):
+        sy = dy * factor
+        row_bytes = []
+        for db in range(dst_bpr):
+            byte = 0
+            for bit in range(8):
+                dpx = db * 8 + bit
+                if dpx >= dst_w:
+                    break
+                spx = dpx * factor
+                sbyte_idx = sy * src_bpr + spx // 8
+                sbit = 7 - (spx & 7)
+                if data[sbyte_idx] & (1 << sbit):
+                    byte |= 0x80 >> bit
+            row_bytes.append(byte)
+        out.extend(row_bytes)
+    return out
+
+
 def format_c_array(name, data, bytes_per_row=16):
     """Format a byte array as a C static const uint8_t declaration."""
     lines = [f"static const uint8_t {name}[{len(data)}] = {{"]
@@ -176,6 +206,12 @@ def main():
         "--sp1",
         action="store_true",
         help="Output in SP1 column-major (mask, graphic) format",
+    )
+    parser.add_argument(
+        "--downscale",
+        action="store_true",
+        help="Also emit 16x16 and 8x8 nearest-neighbour downscaled arrays "
+             "(row-major only, requires 32x32 source frames)",
     )
     args = parser.parse_args()
 
@@ -234,6 +270,12 @@ def main():
 
     header_lines.append("")
 
+    if args.downscale and (args.sp1 or width != 32 or frame_height != 32):
+        sys.exit(
+            "Error: --downscale requires 32x32 row-major frames "
+            "(no --sp1)"
+        )
+
     # Generate per-frame arrays
     for frame in range(args.frames):
         start_row = frame * frame_height
@@ -252,6 +294,14 @@ def main():
 
         header_lines.append(format_c_array(arr_name, data))
         header_lines.append("")
+
+        if args.downscale:
+            ds16 = downscale_bytes(data, 32, 32, 2)
+            ds8 = downscale_bytes(data, 32, 32, 4)
+            header_lines.append(format_c_array(f"{arr_name}_16", ds16))
+            header_lines.append("")
+            header_lines.append(format_c_array(f"{arr_name}_8", ds8))
+            header_lines.append("")
 
     # Attribute array (if present)
     if attr_bytes:

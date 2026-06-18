@@ -5,6 +5,7 @@
  * Sprites drawn directly to screen RAM (no SP1).
  */
 
+#pragma disable_warning 110
 #include <string.h>
 #include <stdint.h>
 #include "../config/game_config.h"
@@ -26,6 +27,8 @@
 #include "../include/vignette.h"
 #include "../include/dzx0.h"
 #include "../include/goo_data.h"
+#include "../include/entity_render.h"
+#include "../include/boat.h"
 
 /* --- Bubblefield public API (from src/bubblefield.c) --- */
 extern void init_bubbles(void);
@@ -211,8 +214,196 @@ static game_state_t state_intro_tick(void)
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_INTRO;
     }
-    if (any_key_pressed()) return STATE_GAME;
+    if (any_key_pressed()) return STATE_LEVEL_INTRO;
     return STATE_INTRO;
+}
+
+/* ------------------------------------------------------------------ */
+/* STATE_LEVEL_INTRO — boat scroll-in animation                        */
+/* ------------------------------------------------------------------ */
+
+#define LINTRO_SEA_Y        64    /* 4 char rows above centre */
+#define LINTRO_TARGET_COL   13    /* (32 - 6) / 2 = screen centre */
+#define LINTRO_BOAT_WL      20
+#define LINTRO_BOAT_W       6
+#define LINTRO_BOAT_H       32
+#define LINTRO_SCROLL_SPEED 3     /* frames per column advance */
+#define LINTRO_BOB_FRAMES   100   /* 2 seconds at 50 fps */
+#define LINTRO_DIVER_WAIT   60
+#define LINTRO_DIVER_X      (DIVER_X >> 3)  /* col 15 */
+#define LINTRO_DIVER_Y      56    /* DIVER_Y - 32, up 4 char rows */
+#define LINTRO_BOAT_ATTR    0x2E  /* yellow ink, cyan paper */
+#define LINTRO_BG_ATTR      0x29  /* depth 1: blue ink, cyan paper */
+#define LINTRO_DIVER_ATTR   0x2E  /* matches game starting attr */
+#define LINTRO_ATTR_ROW     4     /* topmost char row the boat can touch */
+#define LINTRO_ATTR_H       7     /* char rows 4-10 cover full bob range */
+
+#define LINTRO_SCROLL 0
+#define LINTRO_BOB    1
+#define LINTRO_DIVER  2
+
+/* Same sine table as sea line — ±6 px, 32 entries */
+static const int8_t lintro_sine[32] = {
+     0,  1,  2,  3,  4,  5,  5,  6,
+     6,  6,  5,  5,  4,  3,  2,  1,
+     0, -1, -2, -3, -4, -5, -5, -6,
+    -6, -6, -5, -5, -4, -3, -2, -1
+};
+
+static int8_t  lintro_col;
+static uint8_t lintro_phase;
+static uint8_t lintro_timer;
+static uint8_t lintro_sea_phase;
+static uint8_t lintro_drawn;
+static int8_t  lintro_prev_col;
+static uint8_t lintro_prev_y;
+static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
+
+/* Set clipped attribute rect covering the full bob range */
+static void lintro_set_attr(int8_t col, uint8_t attr)
+{
+    uint8_t start_col, w;
+
+    if (col < 0) {
+        uint8_t skip = (uint8_t)(-col);
+        if (skip >= LINTRO_BOAT_W) return;
+        w = LINTRO_BOAT_W - skip;
+        start_col = 0;
+    } else {
+        start_col = (uint8_t)col;
+        if (start_col >= 32) return;
+        w = LINTRO_BOAT_W;
+        if (start_col + w > 32) w = 32 - start_col;
+    }
+    set_attr_rect(start_col, LINTRO_ATTR_ROW, w, LINTRO_ATTR_H, attr);
+}
+
+static uint8_t lintro_boat_y(void)
+{
+    uint8_t center_col = (uint8_t)((lintro_col + 3) & 0x1F);
+    uint8_t idx = (center_col + lintro_sea_phase) & 31;
+    return (uint8_t)(LINTRO_SEA_Y - LINTRO_BOAT_WL + lintro_sine[idx]);
+}
+
+/* XOR sea line: combined erase-old + draw-new, no attrs */
+static void lintro_sealine_tick(void)
+{
+    uint8_t col, idx;
+    int16_t sy;
+
+    for (col = 0; col < 32; col++) {
+        if (lintro_sl_prev[col] < 192)
+            SCREEN[scr_off(col << 3, lintro_sl_prev[col])] ^= 0xFF;
+
+        idx = (col + lintro_sea_phase) & 31;
+        sy = (int16_t)LINTRO_SEA_Y + lintro_sine[idx];
+
+        if (sy >= 0 && sy < 192) {
+            SCREEN[scr_off(col << 3, (uint8_t)sy)] ^= 0xFF;
+            lintro_sl_prev[col] = (uint8_t)sy;
+        } else {
+            lintro_sl_prev[col] = 255;
+        }
+    }
+}
+
+static game_state_t state_level_intro_init(void)
+{
+    uint8_t i;
+    screen_clear(LINTRO_BG_ATTR, 1);
+
+    lintro_col = -(int8_t)LINTRO_BOAT_W;
+    lintro_phase = LINTRO_SCROLL;
+    lintro_timer = 0;
+    lintro_sea_phase = 0;
+    lintro_drawn = 0;
+    for (i = 0; i < 32; i++) lintro_sl_prev[i] = 255;
+
+    return STATE_LEVEL_INTRO;
+}
+
+static game_state_t state_level_intro_tick(void)
+{
+    uint8_t boat_y, show_diver = 0;
+    int8_t  old_col;
+
+    vsync_wait();
+
+    /* DIVER phase: static scene, count down then transition */
+    if (lintro_phase == LINTRO_DIVER) {
+        if (++lintro_timer >= LINTRO_DIVER_WAIT)
+            return STATE_GAME;
+        return STATE_LEVEL_INTRO;
+    }
+
+    /* Phase logic first so boat_y uses the updated column */
+    old_col = lintro_col;
+
+    switch (lintro_phase) {
+    case LINTRO_SCROLL:
+        if (++lintro_timer >= LINTRO_SCROLL_SPEED) {
+            lintro_timer = 0;
+            lintro_col++;
+            if (lintro_col >= LINTRO_TARGET_COL) {
+                lintro_phase = LINTRO_BOB;
+                lintro_timer = 0;
+            }
+        }
+        break;
+
+    case LINTRO_BOB:
+        if (++lintro_timer >= LINTRO_BOB_FRAMES)
+            show_diver = 1;
+        break;
+    }
+
+    boat_y = lintro_boat_y();
+
+    /* Delta-clear: only erase the boat edges that moved */
+    if (lintro_drawn) {
+        if (old_col != lintro_col && old_col >= 0) {
+            clear_blit(old_col, lintro_prev_y, 1, LINTRO_BOAT_H);
+            lintro_sl_prev[(uint8_t)old_col] = 255;
+        }
+        if (lintro_prev_y < boat_y)
+            clear_blit(lintro_prev_col, lintro_prev_y,
+                       LINTRO_BOAT_W, boat_y - lintro_prev_y);
+        else if (lintro_prev_y > boat_y)
+            clear_blit(lintro_prev_col,
+                       (uint8_t)(boat_y + LINTRO_BOAT_H),
+                       LINTRO_BOAT_W,
+                       lintro_prev_y - boat_y);
+    }
+
+    /* Sea line: XOR erase old + draw new */
+    lintro_sealine_tick();
+
+    /* Draw boat */
+    write_blit(lintro_col, boat_y, boat_bitmap,
+               LINTRO_BOAT_W, LINTRO_BOAT_H);
+
+    /* Attrs: clear exposed column, set boat range */
+    if (old_col != lintro_col && old_col >= 0)
+        set_attr_rect((uint8_t)old_col, LINTRO_ATTR_ROW,
+                      1, LINTRO_ATTR_H, LINTRO_BG_ATTR);
+    lintro_set_attr(lintro_col, LINTRO_BOAT_ATTR);
+
+    /* Draw diver on transition frame */
+    if (show_diver) {
+        write_blit(LINTRO_DIVER_X, LINTRO_DIVER_Y,
+                   sprites_get_frame(0), 2, 16);
+        set_attr_rect(LINTRO_DIVER_X, LINTRO_DIVER_Y >> 3,
+                      2, 2, LINTRO_DIVER_ATTR);
+        lintro_phase = LINTRO_DIVER;
+        lintro_timer = 0;
+    }
+
+    lintro_drawn = 1;
+    lintro_prev_col = lintro_col;
+    lintro_prev_y = boat_y;
+    lintro_sea_phase++;
+
+    return STATE_LEVEL_INTRO;
 }
 
 /* ------------------------------------------------------------------ */
@@ -270,8 +461,8 @@ static game_state_t state_game_init(void)
 
 static game_state_t state_game_tick(void)
 {
-    uint8_t k, joy;
-    uint8_t kq, ka, ko, kp, kz;
+    uint8_t k;
+    uint8_t kq, ka, ko, kp, kz, kx;
     uint8_t depth_changed;
     uint8_t damage;
 
@@ -339,10 +530,34 @@ static game_state_t state_game_tick(void)
             sealine_update((uint8_t)sly_i);
         else
             sealine_erase();
+
+        /* Entity Y anchor: top of a 32px sprite at the depth's feature */
+        if (player.gy == 0) {
+            int16_t ey = (sly_i >= 0) ? sly_i - 32 : 20;
+            if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
+            if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
+            env_entity_y = (uint8_t)ey;
+        } else if (player.gy == 1) {
+            env_entity_y = DIVER_Y - 8;
+        } else {
+            int16_t ey;
+            if (at_floor) {
+                uint8_t sfy2 = VIEW_H - 1 -
+                    (uint8_t)((uint16_t)player.sub_z *
+                    (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
+                ey = (int16_t)sfy2 - 32;
+            } else {
+                ey = VIEW_H - 40;
+            }
+            if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
+            if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
+            env_entity_y = (uint8_t)ey;
+        }
     }
 
     if (!depth_is_transitioning())
         predators_draw(frame);
+    predators_cleanup_attrs();
     treasure_render(frame);
     sprites_player_draw((frame >> 3) & 1);
     sprites_player_set_colour(spr_attr);
@@ -354,28 +569,14 @@ static game_state_t state_game_tick(void)
 
     /* === LOGIC PHASE ============================================== */
 
-    /* --- Sample keyboard and adjust velocity --- */
-    k  = read_keys(KEY_QWERT);
-    kq = !(k & 0x01);             /* Q = forward */
-
-    k  = read_keys(KEY_ASDFG);
-    ka = !(k & 0x01);             /* A = backward */
-
-    k  = read_keys(KEY_POIUY);
-    kp = !(k & 0x01);             /* P = right */
-    ko = !(k & 0x02);             /* O = left */
-
-    k  = read_keys(KEY_SHZXCV);
-    kz = !(k & 0x02);             /* Z = descend */
-
-    if (has_kempston) {
-        joy = read_keys(KEMP_PORT);
-        if (joy & 0x08) kq = 1;   /* up = forward */
-        if (joy & 0x04) ka = 1;   /* down = backward */
-        if (joy & 0x02) ko = 1;   /* left */
-        if (joy & 0x01) kp = 1;   /* right */
-        if (joy & 0x10) kz = 1;   /* fire = descend */
-    }
+    /* --- Sample keyboard + joystick in one call --- */
+    k  = scan_input();
+    kq = k & INPUT_FWD;
+    ka = k & INPUT_BACK;
+    ko = k & INPUT_LEFT;
+    kp = k & INPUT_RIGHT;
+    kz = k & INPUT_DESC;
+    kx = k & INPUT_ASC;
 
     /* Horizontal (O/P) — friction model */
     if (ko && vx <  SPEED) vx++;
@@ -387,8 +588,9 @@ static game_state_t state_game_tick(void)
     else if (ka && vz <  SPEED) vz++;
     else if ((frame & 7) == 0) { if (vz > 0) vz--; else if (vz < 0) vz++; }
 
-    /* Vertical (Z = descend) — buoyancy model: diver floats up by default */
+    /* Vertical (Z = descend, X = ascend) — buoyancy model: diver floats up by default */
     if (kz && vy > -SPEED) vy--;
+    else if (kx && vy < SPEED + 1) vy++;
     else if (vy < SPEED) vy++;
 
     /* --- Apply player speed divisor (fractional accumulator) --- */
@@ -397,22 +599,25 @@ static game_state_t state_game_tick(void)
 #if PLAYER_SPEED_DIV > 1
         {
             static int8_t frac_x, frac_y, frac_z;
-            int8_t eff;
 
             frac_x += raw_vx;
-            eff = frac_x / PLAYER_SPEED_DIV;
-            frac_x -= eff * PLAYER_SPEED_DIV;
-            vx = eff;
+            if (frac_x >= PLAYER_SPEED_DIV)       { vx =  1; frac_x -= PLAYER_SPEED_DIV; }
+            else if (frac_x <= -PLAYER_SPEED_DIV)  { vx = -1; frac_x += PLAYER_SPEED_DIV; }
+            else                                    { vx =  0; }
 
             frac_y += raw_vy;
-            eff = frac_y / PLAYER_DEPTH_DIV;
-            frac_y -= eff * PLAYER_DEPTH_DIV;
-            vy = eff;
+            if (frac_y >= PLAYER_DEPTH_DIV) {
+                vy = 1; frac_y -= PLAYER_DEPTH_DIV;
+                if (frac_y >= PLAYER_DEPTH_DIV) { vy = 2; frac_y -= PLAYER_DEPTH_DIV; }
+            } else if (frac_y <= -PLAYER_DEPTH_DIV) {
+                vy = -1; frac_y += PLAYER_DEPTH_DIV;
+                if (frac_y <= -PLAYER_DEPTH_DIV) { vy = -2; frac_y += PLAYER_DEPTH_DIV; }
+            } else { vy = 0; }
 
             frac_z += raw_vz;
-            eff = frac_z / PLAYER_SPEED_DIV;
-            frac_z -= eff * PLAYER_SPEED_DIV;
-            vz = eff;
+            if (frac_z >= PLAYER_SPEED_DIV)       { vz =  1; frac_z -= PLAYER_SPEED_DIV; }
+            else if (frac_z <= -PLAYER_SPEED_DIV)  { vz = -1; frac_z += PLAYER_SPEED_DIV; }
+            else                                    { vz =  0; }
         }
 #endif
 
@@ -528,8 +733,40 @@ static game_state_t state_game_tick(void)
 
     frame++;
 
-    /* --- Distance-based sonar ping --- */
-    sonar_update(treasure_nearest_distance());
+    /* --- Distance-based sonar ping (closest same-depth object) --- */
+    {
+        uint8_t best_dist = 255, best_type = SONAR_TREASURE;
+        uint8_t i, d;
+        int8_t dx, dz;
+
+        for (i = 0; i < level.treasure_count; i++) {
+            if (treasures[i].collected) continue;
+            if (treasures[i].gy != player.gy) continue;
+            dx = (int8_t)(player.gx - treasures[i].gx);
+            dz = (int8_t)(player.gz - treasures[i].gz);
+            if (dx < 0) dx = -dx;
+            if (dz < 0) dz = -dz;
+            d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
+            if (d < best_dist) { best_dist = d; best_type = SONAR_TREASURE; }
+        }
+
+        for (i = 0; i < predator_count; i++) {
+            if (!predators[i].active) continue;
+            if (predators[i].type != player.gy) continue;
+            dx = (int8_t)(player.gx - predators[i].gx);
+            dz = (int8_t)(player.gz - predators[i].gz);
+            if (dx < 0) dx = -dx;
+            if (dz < 0) dz = -dz;
+            d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
+            if (d < best_dist) {
+                best_dist = d;
+                best_type = (predators[i].type == PRED_GOO) ?
+                    SONAR_GOO : SONAR_PREDATOR;
+            }
+        }
+
+        sonar_update(best_dist, best_type);
+    }
     beep_tick();
 
     return STATE_GAME;
@@ -818,21 +1055,23 @@ static game_state_t state_goo_death_tick(void)
 /* Dispatch tables                                                     */
 /* ------------------------------------------------------------------ */
 static const init_fn inits[STATE_COUNT] = {
-    state_title_init,       /* STATE_TITLE     */
-    state_intro_init,       /* STATE_INTRO     */
-    state_game_init,        /* STATE_GAME      */
-    state_summary_init,     /* STATE_SUMMARY   */
-    state_gameover_init,    /* STATE_GAMEOVER  */
-    state_goo_death_init    /* STATE_GOO_DEATH */
+    state_title_init,         /* STATE_TITLE       */
+    state_intro_init,         /* STATE_INTRO       */
+    state_level_intro_init,   /* STATE_LEVEL_INTRO */
+    state_game_init,          /* STATE_GAME        */
+    state_summary_init,       /* STATE_SUMMARY     */
+    state_gameover_init,      /* STATE_GAMEOVER    */
+    state_goo_death_init      /* STATE_GOO_DEATH   */
 };
 
 static const tick_fn ticks[STATE_COUNT] = {
-    state_title_tick,       /* STATE_TITLE     */
-    state_intro_tick,       /* STATE_INTRO     */
-    state_game_tick,        /* STATE_GAME      */
-    state_summary_tick,     /* STATE_SUMMARY   */
-    state_gameover_tick,    /* STATE_GAMEOVER  */
-    state_goo_death_tick    /* STATE_GOO_DEATH */
+    state_title_tick,         /* STATE_TITLE       */
+    state_intro_tick,         /* STATE_INTRO       */
+    state_level_intro_tick,   /* STATE_LEVEL_INTRO */
+    state_game_tick,          /* STATE_GAME        */
+    state_summary_tick,       /* STATE_SUMMARY     */
+    state_gameover_tick,      /* STATE_GAMEOVER    */
+    state_goo_death_tick      /* STATE_GOO_DEATH   */
 };
 
 /* ------------------------------------------------------------------ */

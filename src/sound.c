@@ -23,10 +23,14 @@ extern uint8_t border_val;
 /* --- Ping state machine --- */
 static uint8_t sfx_step;   /* 0=idle, 1-4 = next tone phase */
 static uint8_t sfx_wait;   /* frames to wait before next phase */
+static uint8_t sfx_pitch;  /* delay value for current ping */
 
 /* Half-cycles per phase, silence frames after each phase */
 static const uint8_t ping_cycles[] = { 30, 18, 10, 5 };
 static const uint8_t ping_gaps[]   = {  2,  4,  5, 0 };
+
+/* Pitch (delay) per sonar target type: treasure=high, predator=mid, GOO=low */
+static const uint8_t sonar_pitch[] = { 15, 25, 40 };
 
 /* --- Sonar distance-to-interval mapping (quadratic curve) ---
  * Index 0 = 1 cube away, index 9 = 10 cubes away.
@@ -37,10 +41,11 @@ static const uint8_t sonar_intervals[] = {
 static uint8_t sonar_ctr;
 static uint8_t sonar_active;
 
-void beep_ping_start(void)
+static void beep_ping_start(uint8_t type)
 {
     sfx_step = 1;
     sfx_wait = 0;
+    sfx_pitch = sonar_pitch[type];
 }
 
 /* Play n half-cycles at ping frequency (~5 kHz). ~350n T-states. */
@@ -146,12 +151,12 @@ void beep_tick(void)
     if (sfx_step == 0) return;
     if (sfx_wait > 0) { sfx_wait--; return; }
 
-    sfx_play_tone(ping_cycles[sfx_step - 1]);
+    sfx_play_note(ping_cycles[sfx_step - 1], sfx_pitch);
     sfx_wait = ping_gaps[sfx_step - 1];
     if (++sfx_step > 4) sfx_step = 0;
 }
 
-void sonar_update(uint8_t dist)
+void sonar_update(uint8_t dist, uint8_t type)
 {
     if (dist == 0 || dist > SONAR_RANGE_FAR) {
         sonar_active = 0;
@@ -167,6 +172,6 @@ void sonar_update(uint8_t dist)
         sonar_ctr--;
     } else {
         sonar_ctr = sonar_intervals[dist - 1];
-        beep_ping_start();
+        beep_ping_start(type);
     }
 }

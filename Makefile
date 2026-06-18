@@ -32,33 +32,37 @@ SCR_CROP_ZX0 = $(PYTHON) tools/scr_crop_zx0.py
 include/diver.h: assets/diver.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 2 --name diver
 
-# Row-major sprites (32x32, 2 frames each)
+# Row-major sprites (32x32, 2 frames each, with 16x16 and 8x8 downscaled)
 include/ray.h: assets/ray.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name ray
+	$(ZXP2HEADER) $< $@ --frames 2 --name ray --downscale
 
 include/shark.h: assets/shark.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name shark
+	$(ZXP2HEADER) $< $@ --frames 2 --name shark --downscale
 
 include/statue.h: assets/statue.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name statue
+	$(ZXP2HEADER) $< $@ --frames 2 --name statue --downscale
 
 include/tablet.h: assets/tablet.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name tablet
+	$(ZXP2HEADER) $< $@ --frames 2 --name tablet --downscale
 
 include/altar.h: assets/altar.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name altar
+	$(ZXP2HEADER) $< $@ --frames 2 --name altar --downscale
 
 include/firstaid.h: assets/firstaid.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name firstaid
+	$(ZXP2HEADER) $< $@ --frames 2 --name firstaid --downscale
 
 include/oxygen_tank.h: assets/oxygen_tank.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name oxygen_tank
+	$(ZXP2HEADER) $< $@ --frames 2 --name oxygen_tank --downscale
 
 include/map_item.h: assets/map.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name map_item
+	$(ZXP2HEADER) $< $@ --frames 2 --name map_item --downscale
 
 include/log_item.h: assets/log.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name log_item
+	$(ZXP2HEADER) $< $@ --frames 2 --name log_item --downscale
+
+# Boat (48x32, single frame, for level intro animation)
+include/boat.h: assets/boat.zxp tools/zxp2header.py
+	$(ZXP2HEADER) $< $@ --frames 1 --name boat
 
 # Minimap grid (32x32, blit source for the minimap background)
 include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
@@ -82,6 +86,7 @@ GENERATED_HEADERS = include/diver.h \
     include/ray.h include/shark.h \
     include/statue.h include/tablet.h include/altar.h \
     include/firstaid.h include/oxygen_tank.h include/map_item.h include/log_item.h \
+    include/boat.h \
     include/minimap_grid.h \
     include/goo_data.h \
     include/vignette.h
@@ -90,14 +95,14 @@ GENERATED_HEADERS = include/diver.h \
 SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \
        src/hw_detect.c src/depth.c src/sealine.c src/vsync.c src/sprites.c \
        src/player.c src/treasure.c src/hud.c src/minimap.c src/predators.c \
-       src/dzx0.c
+       src/entity_render.c src/dzx0.c
 
 HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
           include/gfx.h include/input.h include/sound.h include/depth.h \
           include/sealine.h include/vsync.h include/sprites.h \
           include/player.h include/treasure.h include/hud.h include/minimap.h \
-          include/predators.h include/dzx0.h include/goo_data.h \
-          $(GENERATED_HEADERS)
+          include/predators.h include/entity_render.h include/dzx0.h \
+          include/goo_data.h $(GENERATED_HEADERS)
 
 # --- Top-level targets ---
 all: downship.tap

@@ -21,77 +21,6 @@ void plot(uint8_t *buf, uint8_t x, uint8_t y)
     buf[scr_off(x, y)] ^= (0x80 >> (x & 7));
 }
 
-void unplot(uint8_t *buf, uint8_t x, uint8_t y)
-{
-    if (y >= 192) return;
-    buf[scr_off(x, y)] ^= (0x80 >> (x & 7));
-}
-
-void write_sprite(uint8_t *buf, const uint8_t *spr,
-                  uint8_t x, uint8_t y)
-{
-    uint8_t row, py;
-    uint16_t off;
-
-    for (row = 0; row < 16; row++) {
-        py = y + row;
-        if (py >= 192) continue;
-        off = scr_off(x, py);
-        buf[off]     = spr[row * 2];
-        buf[off + 1] = spr[row * 2 + 1];
-    }
-}
-
-void write_sprite_32(uint8_t *buf, const uint8_t *spr,
-                     uint8_t x, uint8_t y)
-{
-    uint8_t row, py;
-    uint16_t off;
-
-    for (row = 0; row < 32; row++) {
-        py = y + row;
-        if (py >= 192) continue;
-        off = scr_off(x, py);
-        buf[off]     = spr[row * 4];
-        buf[off + 1] = spr[row * 4 + 1];
-        buf[off + 2] = spr[row * 4 + 2];
-        buf[off + 3] = spr[row * 4 + 3];
-    }
-}
-
-void erase_sprite_32(uint8_t *buf, uint8_t x, uint8_t y)
-{
-    uint8_t row, py;
-    uint16_t off;
-
-    for (row = 0; row < 32; row++) {
-        py = y + row;
-        if (py >= 192) continue;
-        off = scr_off(x, py);
-        buf[off]     = 0;
-        buf[off + 1] = 0;
-        buf[off + 2] = 0;
-        buf[off + 3] = 0;
-    }
-}
-
-void xor_sprite_32(uint8_t *buf, const uint8_t *spr,
-                   uint8_t x, uint8_t y)
-{
-    uint8_t row, py;
-    uint16_t off;
-
-    for (row = 0; row < 32; row++) {
-        py = y + row;
-        if (py >= 192) continue;
-        off = scr_off(x, py);
-        buf[off]     ^= spr[row * 4];
-        buf[off + 1] ^= spr[row * 4 + 1];
-        buf[off + 2] ^= spr[row * 4 + 2];
-        buf[off + 3] ^= spr[row * 4 + 3];
-    }
-}
-
 void set_attr_rect(uint8_t col, uint8_t row, uint8_t w, uint8_t h,
                    uint8_t attr)
 {
@@ -248,6 +177,120 @@ _x32f_anxt:
     ret
 
     __endasm;
+}
+
+/* --- XOR 16x16 sprite + 2x2 attr rect (C) --- */
+uint8_t xor16_x, xor16_y, xor16_attr;
+const uint8_t *xor16_spr;
+
+void xor_sprite_16(void)
+{
+    uint8_t row, py;
+    uint16_t off;
+
+    for (row = 0; row < 16; row++) {
+        py = xor16_y + row;
+        if (py >= 192) continue;
+        off = scr_off(xor16_x, py);
+        SCREEN[off]     ^= xor16_spr[row * 2];
+        SCREEN[off + 1] ^= xor16_spr[row * 2 + 1];
+    }
+    set_attr_rect(xor16_x >> 3, xor16_y >> 3, 2, 2, xor16_attr);
+}
+
+/* --- XOR 8x8 sprite + 1x1 attr cell (C) --- */
+uint8_t xor8_x, xor8_y, xor8_attr;
+const uint8_t *xor8_spr;
+
+void xor_sprite_8(void)
+{
+    uint8_t row, py;
+    uint16_t off;
+
+    for (row = 0; row < 8; row++) {
+        py = xor8_y + row;
+        if (py >= 192) continue;
+        off = scr_off(xor8_x, py);
+        SCREEN[off] ^= xor8_spr[row];
+    }
+    set_attr_rect(xor8_x >> 3, xor8_y >> 3, 1, 1, xor8_attr);
+}
+
+/* --- XOR 4x4 block (fixed 0xF0 pattern) + 1x1 attr cell (C) --- */
+uint8_t xor4_x, xor4_y, xor4_attr;
+
+void xor_block_4(void)
+{
+    uint8_t row, py;
+    uint16_t off;
+
+    for (row = 0; row < 4; row++) {
+        py = xor4_y + row;
+        if (py >= 192) continue;
+        off = scr_off(xor4_x, py);
+        SCREEN[off] ^= 0xF0;
+    }
+    set_attr_rect(xor4_x >> 3, xor4_y >> 3, 1, 1, xor4_attr);
+}
+
+/* --- Direct-write blit with left-edge clipping (C) --- */
+void write_blit(int8_t col, uint8_t y, const uint8_t *data,
+                uint8_t w, uint8_t h)
+{
+    uint8_t row, c, skip, draw_w, start_col;
+
+    if (col < 0) {
+        skip = (uint8_t)(-col);
+        if (skip >= w) return;
+        draw_w = w - skip;
+        start_col = 0;
+    } else {
+        skip = 0;
+        start_col = (uint8_t)col;
+        if (start_col >= 32) return;
+        draw_w = w;
+        if (start_col + draw_w > 32)
+            draw_w = 32 - start_col;
+    }
+
+    for (row = 0; row < h; row++) {
+        uint8_t py = y + row;
+        uint16_t off;
+        const uint8_t *src;
+        if (py >= 192) continue;
+        off = scr_off(start_col << 3, py);
+        src = data + (uint16_t)row * w + skip;
+        for (c = 0; c < draw_w; c++)
+            SCREEN[off + c] = src[c];
+    }
+}
+
+/* --- Clear (zero) a rect of screen bytes with left-edge clipping (C) --- */
+void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h)
+{
+    uint8_t row, c, draw_w, start_col;
+
+    if (col < 0) {
+        uint8_t skip = (uint8_t)(-col);
+        if (skip >= w) return;
+        draw_w = w - skip;
+        start_col = 0;
+    } else {
+        start_col = (uint8_t)col;
+        if (start_col >= 32) return;
+        draw_w = w;
+        if (start_col + draw_w > 32)
+            draw_w = 32 - start_col;
+    }
+
+    for (row = 0; row < h; row++) {
+        uint8_t py = y + row;
+        uint16_t off;
+        if (py >= 192) continue;
+        off = scr_off(start_col << 3, py);
+        for (c = 0; c < draw_w; c++)
+            SCREEN[off + c] = 0;
+    }
 }
 
 /* ROM character set: 96 chars (space..copyright), 8 bytes each */

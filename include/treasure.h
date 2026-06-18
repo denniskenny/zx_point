@@ -33,7 +33,4 @@ void treasure_render(uint8_t frame_ctr);
 /* Erase all drawn treasure sprites (call on depth change). */
 void treasure_hide_all(void);
 
-/* Chebyshev distance to nearest uncollected treasure, or 255 if none. */
-uint8_t treasure_nearest_distance(void);
-
 #endif /* _TREASURE_H_ */

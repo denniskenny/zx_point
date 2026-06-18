@@ -358,6 +358,11 @@ _sf_erase_bubble:
 
 _sf_no_erase:
 
+    ;; ======== LOD CULL — skip projection for distant bubbles ========
+    ld  a, (ix+4)
+    cp  #BF_Z_CULL
+    jp  nc, _sf_offscr
+
     ;; ======== PROJECTION ========
 
     ;; Pre-screen: if |x| > z or |y| > z, bubble is off-screen.
