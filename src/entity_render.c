@@ -118,10 +118,10 @@ uint8_t entity_pool_draw(entity_pool_t *pool, uint8_t sx, uint8_t sy,
 
 uint8_t entity_z_to_scale(uint8_t z_dist)
 {
-    if (z_dist <= 1) return SCALE_32;
-    if (z_dist == 2) return SCALE_16;
-    if (z_dist == 3) return SCALE_8;
-    if (z_dist == 4) return SCALE_4;
+    if (z_dist <= 1) return SCALE_4;
+    if (z_dist == 2) return SCALE_8;
+    if (z_dist == 3) return SCALE_16;
+    if (z_dist == 4) return SCALE_32;
     return SCALE_NONE;
 }
 

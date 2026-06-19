@@ -223,24 +223,25 @@ static game_state_t state_intro_tick(void)
 /* ------------------------------------------------------------------ */
 
 #define LINTRO_SEA_Y        64    /* 4 char rows above centre */
-#define LINTRO_TARGET_COL   13    /* (32 - 6) / 2 = screen centre */
+#define LINTRO_TARGET_PX    104   /* 13 * 8 = screen centre for 6-byte sprite */
 #define LINTRO_BOAT_WL      20
 #define LINTRO_BOAT_W       6
 #define LINTRO_BOAT_H       32
-#define LINTRO_SCROLL_SPEED 3     /* frames per column advance */
-#define LINTRO_BOB_FRAMES   100   /* 2 seconds at 50 fps */
-#define LINTRO_DIVER_WAIT   60
+#define LINTRO_SCROLL_PX    2     /* pixels per frame */
+#define LINTRO_BOB_FRAMES   50    /* 1 second at 50 fps */
 #define LINTRO_DIVER_X      (DIVER_X >> 3)  /* col 15 */
-#define LINTRO_DIVER_Y      56    /* DIVER_Y - 32, up 4 char rows */
 #define LINTRO_BOAT_ATTR    0x2E  /* yellow ink, cyan paper */
 #define LINTRO_BG_ATTR      0x29  /* depth 1: blue ink, cyan paper */
 #define LINTRO_DIVER_ATTR   0x2E  /* matches game starting attr */
 #define LINTRO_ATTR_ROW     4     /* topmost char row the boat can touch */
 #define LINTRO_ATTR_H       7     /* char rows 4-10 cover full bob range */
 
-#define LINTRO_SCROLL 0
-#define LINTRO_BOB    1
-#define LINTRO_DIVER  2
+#define LINTRO_SCROLL        0
+#define LINTRO_BOB           1
+#define LINTRO_DESCEND       2
+#define LINTRO_HOLD          3
+#define LINTRO_DESCEND_SPEED 3     /* frames per pixel of descent */
+#define LINTRO_HOLD_FRAMES   25    /* 0.5 seconds at 50 fps */
 
 /* Same sine table as sea line — ±6 px, 32 entries */
 static const int8_t lintro_sine[32] = {
@@ -250,29 +251,36 @@ static const int8_t lintro_sine[32] = {
     -6, -6, -5, -5, -4, -3, -2, -1
 };
 
-static int8_t  lintro_col;
+static int16_t lintro_px;
 static uint8_t lintro_phase;
 static uint8_t lintro_timer;
 static uint8_t lintro_sea_phase;
 static uint8_t lintro_drawn;
-static int8_t  lintro_prev_col;
+static int16_t lintro_prev_px;
 static uint8_t lintro_prev_y;
+static uint8_t lintro_diver_y;      /* diver descent target Y */
+static uint8_t lintro_diver_drawn;  /* diver XOR currently on screen */
+static uint8_t lintro_diver_draw_y; /* Y where XOR is on screen */
+static uint8_t lintro_diver_frame;  /* frame index currently XOR'd */
+static uint8_t lintro_saved_vsync; /* saved vsync_mode for restore */
 static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
 
 /* Set clipped attribute rect covering the full bob range */
-static void lintro_set_attr(int8_t col, uint8_t attr)
+static void lintro_set_attr(int16_t px, uint8_t attr)
 {
-    uint8_t start_col, w;
+    int8_t col = (int8_t)(px >> 3);
+    uint8_t shift = (uint8_t)(px & 7);
+    uint8_t w = shift ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W;
+    uint8_t start_col;
 
     if (col < 0) {
-        uint8_t skip = (uint8_t)(-col);
-        if (skip >= LINTRO_BOAT_W) return;
-        w = LINTRO_BOAT_W - skip;
+        int8_t skip = -col;
+        if ((uint8_t)skip >= w) return;
+        w -= (uint8_t)skip;
         start_col = 0;
     } else {
         start_col = (uint8_t)col;
         if (start_col >= 32) return;
-        w = LINTRO_BOAT_W;
         if (start_col + w > 32) w = 32 - start_col;
     }
     set_attr_rect(start_col, LINTRO_ATTR_ROW, w, LINTRO_ATTR_H, attr);
@@ -280,7 +288,7 @@ static void lintro_set_attr(int8_t col, uint8_t attr)
 
 static uint8_t lintro_boat_y(void)
 {
-    uint8_t center_col = (uint8_t)((lintro_col + 3) & 0x1F);
+    uint8_t center_col = (uint8_t)(((lintro_px >> 3) + 3) & 0x1F);
     uint8_t idx = (center_col + lintro_sea_phase) & 31;
     return (uint8_t)(LINTRO_SEA_Y - LINTRO_BOAT_WL + lintro_sine[idx]);
 }
@@ -310,13 +318,18 @@ static void lintro_sealine_tick(void)
 static game_state_t state_level_intro_init(void)
 {
     uint8_t i;
+
+    lintro_saved_vsync = vsync_mode;
+    vsync_mode = 0;
+
     screen_clear(LINTRO_BG_ATTR, 1);
 
-    lintro_col = -(int8_t)LINTRO_BOAT_W;
+    lintro_px = -(int16_t)(LINTRO_BOAT_W * 8);
     lintro_phase = LINTRO_SCROLL;
     lintro_timer = 0;
     lintro_sea_phase = 0;
     lintro_drawn = 0;
+    lintro_diver_drawn = 0;
     for (i = 0; i < 32; i++) lintro_sl_prev[i] = 255;
 
     return STATE_LEVEL_INTRO;
@@ -324,82 +337,125 @@ static game_state_t state_level_intro_init(void)
 
 static game_state_t state_level_intro_tick(void)
 {
-    uint8_t boat_y, show_diver = 0;
-    int8_t  old_col;
+    uint8_t boat_y;
+    int16_t old_px;
+    int8_t  old_col, new_col;
 
     vsync_wait();
 
-    /* DIVER phase: static scene, count down then transition */
-    if (lintro_phase == LINTRO_DIVER) {
-        if (++lintro_timer >= LINTRO_DIVER_WAIT)
-            return STATE_GAME;
-        return STATE_LEVEL_INTRO;
-    }
-
-    /* Phase logic first so boat_y uses the updated column */
-    old_col = lintro_col;
+    old_px = lintro_px;
 
     switch (lintro_phase) {
     case LINTRO_SCROLL:
-        if (++lintro_timer >= LINTRO_SCROLL_SPEED) {
+        lintro_px += LINTRO_SCROLL_PX;
+        if (lintro_px >= LINTRO_TARGET_PX) {
+            lintro_px = LINTRO_TARGET_PX;
+            lintro_phase = LINTRO_BOB;
             lintro_timer = 0;
-            lintro_col++;
-            if (lintro_col >= LINTRO_TARGET_COL) {
-                lintro_phase = LINTRO_BOB;
-                lintro_timer = 0;
-            }
         }
         break;
 
     case LINTRO_BOB:
-        if (++lintro_timer >= LINTRO_BOB_FRAMES)
-            show_diver = 1;
+        if (++lintro_timer >= LINTRO_BOB_FRAMES) {
+            lintro_phase = LINTRO_DESCEND;
+            lintro_timer = 0;
+        }
+        break;
+
+    case LINTRO_DESCEND:
+        if (++lintro_timer >= LINTRO_DESCEND_SPEED) {
+            lintro_timer = 1;
+            lintro_diver_y++;
+            if (lintro_diver_y >= DIVER_Y) {
+                lintro_phase = LINTRO_HOLD;
+                lintro_timer = 0;
+                lintro_diver_y = DIVER_Y;
+            }
+        }
+        break;
+
+    case LINTRO_HOLD:
+        if (++lintro_timer >= LINTRO_HOLD_FRAMES) {
+            vsync_mode = lintro_saved_vsync;
+            return STATE_GAME;
+        }
         break;
     }
 
     boat_y = lintro_boat_y();
 
-    /* Delta-clear: only erase the boat edges that moved */
+    old_col = (int8_t)(old_px >> 3);
+    new_col = (int8_t)(lintro_px >> 3);
+
+    /* Delta-clear: erase exposed column on byte boundary crossing */
     if (lintro_drawn) {
-        if (old_col != lintro_col && old_col >= 0) {
+        if (new_col != old_col && old_col >= 0) {
             clear_blit(old_col, lintro_prev_y, 1, LINTRO_BOAT_H);
             lintro_sl_prev[(uint8_t)old_col] = 255;
         }
-        if (lintro_prev_y < boat_y)
-            clear_blit(lintro_prev_col, lintro_prev_y,
-                       LINTRO_BOAT_W, boat_y - lintro_prev_y);
-        else if (lintro_prev_y > boat_y)
-            clear_blit(lintro_prev_col,
-                       (uint8_t)(boat_y + LINTRO_BOAT_H),
-                       LINTRO_BOAT_W,
-                       lintro_prev_y - boat_y);
+        if (lintro_prev_y != boat_y) {
+            uint8_t prev_w = (lintro_prev_px & 7)
+                             ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W;
+            int8_t prev_col = (int8_t)(lintro_prev_px >> 3);
+            if (lintro_prev_y < boat_y)
+                clear_blit(prev_col, lintro_prev_y,
+                           prev_w, boat_y - lintro_prev_y);
+            else
+                clear_blit(prev_col,
+                           (uint8_t)(boat_y + LINTRO_BOAT_H),
+                           prev_w, lintro_prev_y - boat_y);
+        }
     }
 
     /* Sea line: XOR erase old + draw new */
     lintro_sealine_tick();
 
     /* Draw boat */
-    write_blit(lintro_col, boat_y, boat_bitmap,
-               LINTRO_BOAT_W, LINTRO_BOAT_H);
+    write_blit_px(lintro_px, boat_y, boat_bitmap,
+                  LINTRO_BOAT_W, LINTRO_BOAT_H);
 
     /* Attrs: clear exposed column, set boat range */
-    if (old_col != lintro_col && old_col >= 0)
+    if (new_col != old_col && old_col >= 0)
         set_attr_rect((uint8_t)old_col, LINTRO_ATTR_ROW,
                       1, LINTRO_ATTR_H, LINTRO_BG_ATTR);
-    lintro_set_attr(lintro_col, LINTRO_BOAT_ATTR);
+    lintro_set_attr(lintro_px, LINTRO_BOAT_ATTR);
 
-    /* Draw diver on transition frame */
-    if (show_diver) {
-        write_blit(LINTRO_DIVER_X, LINTRO_DIVER_Y,
-                   sprites_get_frame(0), 2, 16);
-        set_attr_rect(LINTRO_DIVER_X, LINTRO_DIVER_Y >> 3,
-                      2, 2, LINTRO_DIVER_ATTR);
-        lintro_phase = LINTRO_DIVER;
-        lintro_timer = 0;
+    /* Diver: init Y on first DESCEND frame */
+    if (lintro_phase == LINTRO_DESCEND && lintro_timer == 0) {
+        lintro_diver_y = boat_y + LINTRO_BOAT_H;
+        lintro_timer = 1;
+    }
+
+    /* XOR diver: erase + draw back-to-back to minimise flicker */
+    if (lintro_phase == LINTRO_DESCEND || lintro_phase == LINTRO_HOLD) {
+        uint8_t cur_frame = (lintro_sea_phase >> 4) & 1;
+
+        xor16_x = DIVER_X;
+        xor16_attr = LINTRO_DIVER_ATTR;
+
+        if (lintro_diver_drawn &&
+            (lintro_diver_draw_y != lintro_diver_y ||
+             lintro_diver_frame != cur_frame)) {
+            xor16_y = lintro_diver_draw_y;
+            xor16_spr = sprites_get_frame(lintro_diver_frame);
+            xor_sprite_16();
+            lintro_diver_drawn = 0;
+        }
+
+        if (!lintro_diver_drawn) {
+            xor16_y = lintro_diver_y;
+            xor16_spr = sprites_get_frame(cur_frame);
+            xor_sprite_16();
+            set_attr_rect(LINTRO_DIVER_X, lintro_diver_y >> 3,
+                          2, 3, LINTRO_DIVER_ATTR);
+            lintro_diver_drawn = 1;
+            lintro_diver_draw_y = lintro_diver_y;
+            lintro_diver_frame = cur_frame;
+        }
     }
 
     lintro_drawn = 1;
-    lintro_prev_col = lintro_col;
+    lintro_prev_px = lintro_px;
     lintro_prev_y = boat_y;
     lintro_sea_phase++;
 

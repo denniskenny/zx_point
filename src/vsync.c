@@ -10,11 +10,11 @@
  * — giving the full bottom border + vblank + top border (~28 000
  * T-states) before the active display is scanned again.
  *
- * The marker is computed each frame as (ATTR[0] & 0x78) | 0x03:
- * paper+bright from the current depth attribute, ink set to magenta,
- * bit 0 forced on for +2A/+3 compatibility.  This makes the marker
- * visually invisible (paper matches the depth) while remaining unique
- * — magenta ink is never used by any game element.
+ * The marker is computed each frame as (ATTR[0] & 0x40) | 0x03:
+ * black paper, magenta ink, bright inherited from depth.  Bit 0 is
+ * set for +2A/+3 compatibility.  The marker is invisible against the
+ * vignette's dark border at row 22; magenta ink is never used by any
+ * game element, keeping the marker unique.
  *
  * Three modes, detected once at startup by vsync_detect():
  *
@@ -40,10 +40,10 @@ void vsync_detect(void) __naked
     __asm
 
     ;; ---- Write sync marker to attr row 22, cols 0-2 ----
-    ;; 0x1B used only during boot detection (screen not yet set up).
+    ;; 0x03 used only during boot detection (screen not yet set up).
     ;; vsync_wait() replaces this with a depth-derived marker.
     ld  hl, 0x5AC0         ; attr row 22, col 0
-    ld  a, 0x1B
+    ld  a, 0x03
     ld  (hl), a
     inc l
     ld  (hl), a
@@ -108,13 +108,18 @@ void vsync_wait(void) __naked
 {
     __asm
 
+    ;; ---- Branch on detected mode ----
+    ld  a, (_vsync_mode)
+    or  a
+    jr  z, _vs_halt
+
     ;; ---- Compute marker from current depth ----
-    ;; marker = (ATTR[0] & 0x78) | 0x03
-    ;; Paper+bright matches the depth palette; ink = magenta (unused
-    ;; by any game element); bit 0 set for +2A/+3 bus compatibility.
+    ;; marker = (ATTR[0] & 0x40) | 0x03
+    ;; Black paper + magenta ink (invisible on dark vignette border).
+    ;; Bright inherited from depth.  Bit 0 set for +2A/+3 compat.
     ld  a, (0x5800)         ; [13] read ATTR[0]
-    and 0x78                ; [7]  paper + bright bits
-    or  0x03                ; [7]  ink = magenta, bit 0 set
+    and 0x40                ; [7]  bright bit only
+    or  0x03                ; [7]  black paper + magenta ink
     ld  d, a                ; [4]  D = marker for detection loop
 
     ;; ---- Refresh marker every frame ----
@@ -127,20 +132,20 @@ void vsync_wait(void) __naked
     inc l
     ld  (hl), d             ; col 2
     inc l
-    xor a
-    ld  (hl), a             ; col 3 = preload byte (0x00)
+    ld  a, d
+    and 0x40                ; keep bright only
+    or  0x84                ; flash + green ink, black paper (matches vignette)
+    ld  (hl), a             ; col 3 = preload byte (differs from marker in bits 0-2)
 
-    ;; ---- Branch on detected mode ----
+    ;; ---- Branch on mode 1 vs 2 ----
     ld  a, (_vsync_mode)
-    or  a
-    jr  z, _vs_halt
     dec a
     jr  z, _vs_48k
 
     ;; ============================================================
     ;; Mode 2: +2A/+3 floating bus  (port 0x0FFD, 42 T per iter)
     ;; ============================================================
-    ;; Contended read preloads bus with 0x00 during idle intervals.
+    ;; Contended read preloads bus with col 3 value during idle.
     ;; ULA returns (attr | 1) during fetches — marker matches
     ;; because bit 0 is already set.
 _vs_128k:
