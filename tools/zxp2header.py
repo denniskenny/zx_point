@@ -5,17 +5,19 @@ zxp2header.py - Convert ZX-Paintbrush .zxp files to C header files.
 Produces static const uint8_t arrays suitable for Z88DK / SDCC.
 
 ZXP format (text-based):
-  Line 0: "ZX-Paintbrush"
-  Line 1: dimensions or metadata (e.g. "16x32")
+  Line 0: "ZX-Paintbrush image"
+  Line 1: blank
   Lines 2..N: pixel rows as ASCII '0' and '1' characters
   Blank separator line
   Attribute lines: space-separated hex bytes, one line per character row
 
-For multi-frame sprites, frames are stacked vertically in the pixel data.
-The frame height is inferred from: total_pixel_rows / num_frames.
+For multi-frame sprites, frames can be stacked vertically (default) or
+arranged side-by-side (--horizontal).  Vertical: frame height = total rows
+/ num_frames.  Horizontal: frame width = total width / num_frames.
 
 Usage:
   zxp2header.py <input.zxp> <output.h> [--frames N] [--name NAME] [--sp1]
+                [--horizontal] [--downscale]
 
 The --sp1 flag outputs sprite data in SP1's column-major (mask, graphic)
 pair format instead of row-major. Each column contains (height_chars + 1)
@@ -38,9 +40,12 @@ def parse_zxp(path):
         sys.exit(f"Error: {path} too short to be a valid .zxp file")
 
     # Find pixel data: lines of '0' and '1' characters
+    # Skip header lines and any leading blanks
     pixel_lines = []
     attr_start = None
     i = 2
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
     while i < len(lines):
         line = lines[i]
         # A blank line separates pixels from attributes
@@ -213,18 +218,32 @@ def main():
         help="Also emit 16x16 and 8x8 nearest-neighbour downscaled arrays "
              "(row-major only, requires 32x32 source frames)",
     )
+    parser.add_argument(
+        "--horizontal",
+        action="store_true",
+        help="Frames are arranged side-by-side (default: stacked vertically)",
+    )
     args = parser.parse_args()
 
-    width, pixel_lines, attr_bytes = parse_zxp(args.input)
+    full_width, pixel_lines, attr_bytes = parse_zxp(args.input)
     total_rows = len(pixel_lines)
 
-    if total_rows % args.frames != 0:
-        sys.exit(
-            f"Error: {total_rows} pixel rows not divisible by "
-            f"{args.frames} frames"
-        )
-
-    frame_height = total_rows // args.frames
+    if args.horizontal:
+        if full_width % args.frames != 0:
+            sys.exit(
+                f"Error: {full_width} pixel width not divisible by "
+                f"{args.frames} frames"
+            )
+        frame_width = full_width // args.frames
+        frame_height = total_rows
+    else:
+        if total_rows % args.frames != 0:
+            sys.exit(
+                f"Error: {total_rows} pixel rows not divisible by "
+                f"{args.frames} frames"
+            )
+        frame_width = full_width
+        frame_height = total_rows // args.frames
 
     # Derive C identifier base name
     if args.name:
@@ -238,7 +257,7 @@ def main():
     guard = f"_{base.upper()}_H_"
 
     height_chars = (frame_height + 7) // 8
-    width_cols = (width + 7) // 8
+    width_cols = (frame_width + 7) // 8
 
     header_lines = [
         f"#ifndef {guard}",
@@ -250,7 +269,7 @@ def main():
         "",
         "#include <stdint.h>",
         "",
-        f"#define {base.upper()}_WIDTH  {width}",
+        f"#define {base.upper()}_WIDTH  {frame_width}",
         f"#define {base.upper()}_HEIGHT {frame_height}",
         f"#define {base.upper()}_FRAMES {args.frames}",
     ]
@@ -270,7 +289,8 @@ def main():
 
     header_lines.append("")
 
-    if args.downscale and (args.sp1 or width != 32 or frame_height != 32):
+    if args.downscale and (args.sp1 or frame_width != 32
+                          or frame_height != 32):
         sys.exit(
             "Error: --downscale requires 32x32 row-major frames "
             "(no --sp1)"
@@ -278,14 +298,19 @@ def main():
 
     # Generate per-frame arrays
     for frame in range(args.frames):
-        start_row = frame * frame_height
-        end_row = start_row + frame_height
-        frame_pixels = pixel_lines[start_row:end_row]
+        if args.horizontal:
+            col_start = frame * frame_width
+            col_end = col_start + frame_width
+            frame_pixels = [row[col_start:col_end] for row in pixel_lines]
+        else:
+            start_row = frame * frame_height
+            end_row = start_row + frame_height
+            frame_pixels = pixel_lines[start_row:end_row]
 
         if args.sp1:
-            data = pixels_to_sp1(frame_pixels, width, frame_height)
+            data = pixels_to_sp1(frame_pixels, frame_width, frame_height)
         else:
-            data = pixels_to_bytes(frame_pixels, width)
+            data = pixels_to_bytes(frame_pixels, frame_width)
 
         if args.frames == 1:
             arr_name = f"{base}_bitmap" if not args.sp1 else f"{base}_sp1"
@@ -315,9 +340,10 @@ def main():
         f.write("\n".join(header_lines))
 
     fmt = "SP1 column-major" if args.sp1 else "row-major"
+    layout = "horizontal" if args.horizontal else "vertical"
     print(
-        f"Generated {args.output}: {width}x{frame_height}, "
-        f"{args.frames} frame(s), "
+        f"Generated {args.output}: {frame_width}x{frame_height}, "
+        f"{args.frames} frame(s) [{layout}], "
         f"{len(attr_bytes)} attribute byte(s) [{fmt}]"
     )
 

@@ -58,7 +58,6 @@ static uint8_t was_edge_x, was_edge_y, was_edge_z;
 
 /* --- Draw state: computed in logic phase, consumed next draw phase --- */
 static int8_t bubble_vx, bubble_vy, bubble_vz;
-static uint8_t spr_attr;
 
 /* --- Persistent state across game states --- */
 static uint8_t current_level;
@@ -224,16 +223,15 @@ static game_state_t state_intro_tick(void)
 
 #define LINTRO_SEA_Y        64    /* 4 char rows above centre */
 #define LINTRO_TARGET_PX    104   /* 13 * 8 = screen centre for 6-byte sprite */
-#define LINTRO_BOAT_WL      20
+#define LINTRO_BOAT_WL      28
 #define LINTRO_BOAT_W       6
 #define LINTRO_BOAT_H       32
 #define LINTRO_SCROLL_PX    2     /* pixels per frame */
 #define LINTRO_BOB_FRAMES   50    /* 1 second at 50 fps */
 #define LINTRO_DIVER_X      (DIVER_X >> 3)  /* col 15 */
-#define LINTRO_BOAT_ATTR    0x2E  /* yellow ink, cyan paper */
+#define LINTRO_BOAT_ATTR    0x2A  /* red ink, cyan paper */
 #define LINTRO_BG_ATTR      0x29  /* depth 1: blue ink, cyan paper */
-#define LINTRO_DIVER_ATTR   0x2E  /* matches game starting attr */
-#define LINTRO_ATTR_ROW     4     /* topmost char row the boat can touch */
+#define LINTRO_ATTR_ROW     3     /* topmost char row the boat can touch */
 #define LINTRO_ATTR_H       7     /* char rows 4-10 cover full bob range */
 
 #define LINTRO_SCROLL        0
@@ -298,8 +296,16 @@ static void lintro_sealine_tick(void)
 {
     uint8_t col, idx;
     int16_t sy;
+    int8_t bcol = (int8_t)(lintro_px >> 3);
+    int8_t bcol_end = bcol + (int8_t)((lintro_px & 7)
+                     ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W);
 
     for (col = 0; col < 32; col++) {
+        if ((int8_t)col >= bcol && (int8_t)col < bcol_end) {
+            lintro_sl_prev[col] = 255;
+            continue;
+        }
+
         if (lintro_sl_prev[col] < 192)
             SCREEN[scr_off(col << 3, lintro_sl_prev[col])] ^= 0xFF;
 
@@ -331,6 +337,7 @@ static game_state_t state_level_intro_init(void)
     lintro_drawn = 0;
     lintro_diver_drawn = 0;
     for (i = 0; i < 32; i++) lintro_sl_prev[i] = 255;
+    key_debounce = 1;
 
     return STATE_LEVEL_INTRO;
 }
@@ -342,6 +349,13 @@ static game_state_t state_level_intro_tick(void)
     int8_t  old_col, new_col;
 
     vsync_wait();
+
+    if (key_debounce) {
+        if (!any_key_pressed()) key_debounce = 0;
+    } else if (any_key_pressed()) {
+        vsync_mode = lintro_saved_vsync;
+        return STATE_GAME;
+    }
 
     old_px = lintro_px;
 
@@ -428,10 +442,10 @@ static game_state_t state_level_intro_tick(void)
 
     /* XOR diver: erase + draw back-to-back to minimise flicker */
     if (lintro_phase == LINTRO_DESCEND || lintro_phase == LINTRO_HOLD) {
-        uint8_t cur_frame = (lintro_sea_phase >> 4) & 1;
+        uint8_t cur_frame = (lintro_sea_phase >> 4) % diver_frame_count;
 
         xor16_x = DIVER_X;
-        xor16_attr = LINTRO_DIVER_ATTR;
+        xor16_attr = LINTRO_BG_ATTR;
 
         if (lintro_diver_drawn &&
             (lintro_diver_draw_y != lintro_diver_y ||
@@ -446,12 +460,13 @@ static game_state_t state_level_intro_tick(void)
             xor16_y = lintro_diver_y;
             xor16_spr = sprites_get_frame(cur_frame);
             xor_sprite_16();
-            set_attr_rect(LINTRO_DIVER_X, lintro_diver_y >> 3,
-                          2, 3, LINTRO_DIVER_ATTR);
             lintro_diver_drawn = 1;
             lintro_diver_draw_y = lintro_diver_y;
             lintro_diver_frame = cur_frame;
         }
+
+        sprites_diver_set_colour_at(LINTRO_DIVER_X,
+                                    lintro_diver_draw_y >> 3, 3, 0x28);
     }
 
     lintro_drawn = 1;
@@ -493,7 +508,6 @@ static game_state_t state_game_init(void)
     sprites_init();
     depth_set(1);
     vignette_load();
-    spr_attr = depth_get_paper() | 0x06;
 
     /* Reset predator and treasure draw tracking */
     predators_init();
@@ -530,14 +544,14 @@ static game_state_t state_game_tick(void)
      *   1. DRAW PHASE  — runs immediately after vsync, while the
      *      beam is in the top border (~14 336 T-states of safe
      *      window).  All screen writes happen here, racing ahead
-     *      of the beam.  Uses bubble_vx/vy/vz, spr_attr, and
+     *      of the beam.  Uses bubble_vx/vy/vz and
      *      player/predator/treasure positions computed by the
      *      PREVIOUS tick's logic phase.
      *
      *   2. LOGIC PHASE  — runs while the beam scans the active
      *      display.  No screen writes (except depth-change hide,
      *      which is a rare one-shot).  Reads input, moves entities,
-     *      checks collisions, and writes bubble_vx/vy/vz + spr_attr
+     *      checks collisions, and writes bubble_vx/vy/vz
      *      for the NEXT draw phase.
      *
      * This gives one frame (20 ms) of display latency between input
@@ -615,8 +629,11 @@ static game_state_t state_game_tick(void)
         predators_draw(frame);
     predators_cleanup_attrs();
     treasure_render(frame);
-    sprites_player_draw((frame >> 3) & 1);
-    sprites_player_set_colour(spr_attr);
+    sprites_player_draw((frame >> 3) % diver_frame_count);
+    if (player.invuln_timer > 0 && (player.invuln_timer & 0x02))
+        set_attr_rect(DIVER_X >> 3, DIVER_Y >> 3, 2, 2, depth_get_attr(current_depth));
+    else
+        sprites_player_set_colour(depth_get_paper());
 
     hud_draw(player.oxygen, player.health);
 
@@ -781,12 +798,6 @@ static game_state_t state_game_tick(void)
         }
     }
 
-    /* --- Compute draw state for next frame --- */
-    if (player.invuln_timer > 0 && (player.invuln_timer & 0x02))
-        spr_attr = depth_get_paper() | (ATTR[0] & 0x07);
-    else
-        spr_attr = depth_get_paper() | 0x06;
-
     frame++;
 
     /* --- Distance-based sonar ping (closest same-depth object) --- */
@@ -939,7 +950,7 @@ static game_state_t state_summary_tick(void)
         if (game_over_flag == 1)
             return STATE_TITLE;
         if (game_over_flag == 2)
-            return STATE_GAME;
+            return STATE_LEVEL_INTRO;
         current_level++;
         return STATE_INTRO;
     }
@@ -1074,7 +1085,7 @@ static game_state_t state_goo_death_init(void)
     dzx0_decompress(goo_frames[0], SCRATCH_BUF);
     write_crop_to_screen();
     sprites_player_draw(0);
-    sprites_player_set_colour(depth_get_paper() | 0x06);
+    sprites_player_set_colour(depth_get_paper());
 
     sfx_play_note(30, 255);
 
@@ -1096,7 +1107,7 @@ static game_state_t state_goo_death_tick(void)
         dzx0_decompress(goo_frames[goo_step], SCRATCH_BUF);
         write_crop_to_screen();
         sprites_player_draw(0);
-        sprites_player_set_colour(depth_get_paper() | 0x06);
+        sprites_player_set_colour(depth_get_paper());
 
         if (goo_step < 2)
             sfx_play_note(20, (uint8_t)(255 - goo_step * 60));

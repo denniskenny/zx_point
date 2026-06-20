@@ -29,39 +29,39 @@ ZX0 ?= /tmp/ZX0/src/zx0
 SCR_CROP_ZX0 = $(PYTHON) tools/scr_crop_zx0.py
 
 # Row-major sprites (direct write — diver stays row-major for legacy compat)
-include/diver.h: assets/diver.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name diver
+include/diver.h: assets/diver3.zxp tools/zxp2header.py
+	$(ZXP2HEADER) $< $@ --frames 4 --horizontal --name diver
 
 # Row-major sprites (32x32, 2 frames each, with 16x16 and 8x8 downscaled)
 include/ray.h: assets/ray.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name ray --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name ray --downscale
 
 include/shark.h: assets/shark.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name shark --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name shark --downscale
 
 include/statue.h: assets/statue.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name statue --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name statue --downscale
 
 include/tablet.h: assets/tablet.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name tablet --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name tablet --downscale
 
 include/altar.h: assets/altar.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name altar --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name altar --downscale
 
 include/firstaid.h: assets/firstaid.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name firstaid --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name firstaid --downscale
 
 include/oxygen_tank.h: assets/oxygen_tank.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name oxygen_tank --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name oxygen_tank --downscale
 
 include/map_item.h: assets/map.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name map_item --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name map_item --downscale
 
 include/log_item.h: assets/log.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name log_item --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name log_item --downscale
 
-# Boat (48x32, single frame, for level intro animation)
-include/boat.h: assets/boat.zxp tools/zxp2header.py
+# Ship (48x32, single frame, for level intro animation)
+include/boat.h: assets/ship3.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 1 --name boat
 
 # Minimap grid (32x32, blit source for the minimap background)

@@ -15,6 +15,8 @@
 #include "../include/gfx.h"
 #include "../include/diver.h"
 
+const uint8_t diver_frame_count = DIVER_FRAMES;
+
 /* ------------------------------------------------------------------ */
 /* Initialise sprite system: clear pixel RAM                           */
 /* ------------------------------------------------------------------ */
@@ -32,12 +34,14 @@ static const uint16_t player_scr[16] = {
 /* ------------------------------------------------------------------ */
 /* Draw player sprite at fixed screen centre                           */
 /* ------------------------------------------------------------------ */
+static const uint8_t * const diver_frames[] = { diver_f1, diver_f2, diver_f3, diver_f4 };
+
 void sprites_player_draw(uint8_t frame_idx)
 {
     const uint8_t *frame_data;
     uint8_t r;
 
-    frame_data = (frame_idx & 1) ? diver_f2 : diver_f1;
+    frame_data = diver_frames[frame_idx % DIVER_FRAMES];
     for (r = 0; r < 16; r++) {
         uint16_t off = player_scr[r];
         SCREEN[off]     = *frame_data++;
@@ -50,14 +54,34 @@ void sprites_player_draw(uint8_t frame_idx)
 /* ------------------------------------------------------------------ */
 const uint8_t *sprites_get_frame(uint8_t frame_idx)
 {
-    return (frame_idx & 1) ? diver_f2 : diver_f1;
+    return diver_frames[frame_idx % DIVER_FRAMES];
 }
 
 /* ------------------------------------------------------------------ */
-/* Set player sprite colour: 2x2 ATTR cells at (col=15, row=11)       */
+/* Apply diver colour attrs from diver_attr[] at a given cell position */
+/* paper = bits 3-5 to merge with each cell's ink/bright/flash         */
 /* ------------------------------------------------------------------ */
-void sprites_player_set_colour(uint8_t attr)
+void sprites_diver_set_colour_at(uint8_t col, uint8_t row,
+                                 uint8_t rows, uint8_t paper)
 {
-    set_attr_rect(DIVER_X >> 3, DIVER_Y >> 3, 2, 2, attr);
+    uint16_t base = (uint16_t)row * 32 + col;
+    uint8_t stride = (DIVER_WIDTH >> 3) * DIVER_FRAMES;
+    uint8_t a0 = (diver_attr[0] & 0xC7) | paper;
+    uint8_t a1 = (diver_attr[1] & 0xC7) | paper;
+    uint8_t b0 = (diver_attr[stride] & 0xC7) | paper;
+    uint8_t b1 = (diver_attr[stride + 1] & 0xC7) | paper;
+    uint8_t r;
+    ATTR[base]     = a0;
+    ATTR[base + 1] = a1;
+    for (r = 1; r < rows; r++) {
+        base += 32;
+        ATTR[base]     = b0;
+        ATTR[base + 1] = b1;
+    }
+}
+
+void sprites_player_set_colour(uint8_t paper)
+{
+    sprites_diver_set_colour_at(DIVER_X >> 3, DIVER_Y >> 3, 2, paper);
 }
 
