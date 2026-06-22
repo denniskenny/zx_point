@@ -1,7 +1,7 @@
 /*
  * depth.c — Depth layer attribute system
  *
- * Three depth palettes with animated transitions (~50 frames = 1s).
+ * Three depth palettes with animated transitions.
  * Attribute byte format: F_B_PPP_III (flash, bright, paper, ink).
  *
  * Depth 1: Paper=cyan(5), Ink=blue(1), Bright=0   → 0x29  border=1 (blue)

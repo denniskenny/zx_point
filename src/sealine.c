@@ -101,6 +101,12 @@ uint8_t sealine_get_cull_y(void)
     return sl_base_y - 7;
 }
 
+uint8_t sealine_get_clamp_y(void)
+{
+    if (!sl_visible) return 0;
+    return ((sl_base_y + 6) | 7) + 1;
+}
+
 uint8_t sealine_is_visible(void)
 {
     return sl_visible;

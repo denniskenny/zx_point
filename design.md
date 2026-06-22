@@ -171,6 +171,12 @@ The game will be implemented using the ZX Spectrum 48k. The game will be written
 * Use direct writes for the starfield, Boat, Great Old One,and sprites (Player, Rays, Sharks and Treasures).
 * Plan to use Einar's compression library for the Great Old One and the Boat graphics;  https://github.com/einar-saukas/ZX0
 
+### Testing
+Automated tests run on ZEsarUX in headless mode via `make test`. Each test suite is a standalone C program compiled with the same z88dk toolchain and CRT as the game. The test program writes pass/fail results to a fixed RAM address (0xD000), and a Python runner script reads them over ZRCP (ZEsarUX Remote Control Protocol).
+
+Test suites:
+* **test_orientation** — Verifies axis mapping consistency across player movement, entity screen positioning, minimap plotting, Z-scale mapping, and predator pursuit AI (15 tests).
+
 ### Sound
 All beeper effects should be very short to minimise frame drops.
 Use Shiru's Tritone engine for the beeper melodies (to emulate the AY 3 channels), Sonar Ping and effects.
@@ -262,9 +268,95 @@ The 16x16 and 8x8 scaled variants are pre-calculated at build time from the 32x3
 The scaling tool must preserve the 1-pixel mask border at each scale level to prevent pixel bleeding against the background.
 
 ### Game Space
-The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre subcube, grid position (16,16). To avoid ending the game instantly, the diver must begin the game at the bottom of the this subcube.
+The world space will be a 3d grid of 32x3x32 (Width x Depth x Height) cubes. The player will always start in the top centre subcube, grid position (16,16). To avoid ending the game instantly, the diver must begin the game at the centre of this subcube.
 
 Each minimap cell (8 cubes) should take about 5 seconds to traverse horizontally. It should take approximately 6 seconds to descend one depth level (CUBE_SUB_Z=300). The player always starts at the centre of the grid in the top layer (grid position 16,16). Once the player speed per cube has been calculated, it should be extracted as a cube_distance constant. This can also be used for the Sonar Ping distance mapping, as well as the Sea Line and Sea Floor scrolling.
+
+
+### The 3 Layers of Depth
+
+Although the sea is wide, it is only 3 levels deep. However the cubes in the grid are much deeper than they are wide. It should take approximately 10 seconds to descend each level.
+
+A single master paper colour (read via `depth_get_paper()`) is used for the border, starfield attributes, diver sprite, predator sprites, HUD gauges, and depth bar. The beeper sound routine preserves the current border colour when toggling the speaker bit on port 254.
+
+When the player descends or ascends a depth level, the paper/ink colours change rapidly using a table-driven animation. Each transition has a fixed number of colour steps; the total duration is `TRANSITION_FRAMES` (8) frames distributed evenly across the steps.
+
+#### Transitions
+
+Attribute bytes use the ZX Spectrum format `F B PPP III` (flash, bright, paper 0-7, ink 0-7). Colour indices: 0=black, 1=blue, 2=red, 3=magenta, 4=green, 5=cyan, 6=yellow, 7=white.
+
+**1. Depth 1 → Depth 2** (7 steps, 1 frame per step ≈ 0.14s)
+
+| Step | Paper    | Ink   | Bright | Border | Attr byte |
+|------|----------|-------|--------|--------|-----------|
+| 0    | cyan     | blue  | off    | blue   | 0x29      |
+| 1    | green    | blue  | off    | blue   | 0x21      |
+| 2    | magenta  | blue  | off    | blue   | 0x19      |
+| 3    | red      | blue  | off    | cyan   | 0x11      |
+| 4-6  | blue     | cyan  | off    | cyan   | 0x0D      |
+
+Paper sweeps cyan → green → magenta → red → blue. Ink stays blue then flips to cyan at the destination. Border switches from blue to cyan at step 3.
+
+**2. Depth 2 → Depth 3** (3 steps, 4 frames per step ≈ 0.24s)
+
+| Step | Paper | Ink  | Bright | Border | Attr byte |
+|------|-------|------|--------|--------|-----------|
+| 0    | blue  | cyan | off    | cyan   | 0x0D      |
+| 1    | blue  | blue | off    | blue   | 0x09      |
+| 2    | black | blue | on     | blue   | 0x41      |
+
+Ink dims from cyan to blue, paper fades from blue to black. Bright turns on at the final step so the blue ink remains visible against the black paper. Border switches from cyan to blue at step 1.
+
+**3. Depth 3 → Depth 2** (3 steps, 4 frames per step ≈ 0.24s)
+
+| Step | Paper | Ink  | Bright | Border | Attr byte |
+|------|-------|------|--------|--------|-----------|
+| 0    | black | blue | on     | blue   | 0x41      |
+| 1    | blue  | blue | off    | cyan   | 0x09      |
+| 2    | blue  | cyan | off    | cyan   | 0x0D      |
+
+Reverse of Depth 2 → 3. Bright turns off at step 1 as paper lightens from black to blue. Border switches from blue to cyan at step 1.
+
+**4. Depth 2 → Depth 1** (7 steps, 1 frame per step ≈ 0.14s)
+
+| Step | Paper    | Ink   | Bright | Border | Attr byte |
+|------|----------|-------|--------|--------|-----------|
+| 0-2  | blue     | cyan  | off    | cyan   | 0x0D      |
+| 3    | red      | blue  | off    | cyan   | 0x11      |
+| 4    | magenta  | blue  | off    | blue   | 0x19      |
+| 5    | green    | blue  | off    | blue   | 0x21      |
+| 6    | cyan     | blue  | off    | blue   | 0x29      |
+
+Reverse of Depth 1 → 2. Paper sweeps blue → red → magenta → green → cyan. Border switches from cyan to blue at step 4.
+
+### Depth Zone 1 : The Daylight Zone
+
+Paper : Cyan, non-bright
+Border : Blue 
+Ink : Blue
+Bubblefield: 100
+Predators :  Only Rays Exist at this level.
+Treasure: Only Flotsam, the treasure is rendered at a random position on the surface line. It should be updated as the pixel line undulates.
+
+At the top, the Sea Line is rendered by a single sinewave line of pixels. The sinewave is animated to create an undulating effect.  Bubbles above this line are culled. This line quickly scrolls off the screen as the player descends.
+
+### Depth 2 : The Twilight Zone
+Paper : Blue
+Border : Cyan
+Ink : Cyan
+Bubblefield: 50
+Predators :  Only Sharks Exist at this level.
+Treasure: None
+
+### Depth 3 : The Midnight Zone
+Paper : Black
+Border : Blue
+Ink : Blue
+Bubblefield: 30
+Predators :  Only Great Old Ones Exist at this level.
+Treasure: Archaeological Treasures on the Sea Floor
+
+The bottom of the lowest cube should be rendered as a single dark blue line of pixels (the sea floor). If treasure is present, it should be rendered at a random position on this line.
 
 ### The Sea Line
 When the player is in the top cube, the Sea Line is represented by a sinewave line of pixels. The sinewave is animated to create an undulating effect.
@@ -274,21 +366,40 @@ The sea line should never descend below the player's position (e.g. the centre o
 The sea line will scroll off the screen as the player descends.
 
 * Starfield bubbles should be culled above the sea line (which can be treated as a single horizontal coordinate value for the purpose of culling).
-* Rays should also be culled above the sea line. 
+* Rays should also be culled above the sea line.
+* Predators and treasures should never be spawned or rendered above the sea line. For the purposes of simplifying clamping, the sea line is treated as a straight line at its bottommost point (the bottom of the character row containing the sinewave's lowest pixel). The clamping Y is computed as `((sl_base_y + 6) | 7) + 1` — the first pixel row entirely below the sea line's character row.
 * Sharks, Great Old Ones and Archaeological Treasures do not appear at this level.
-* Flotsam will appear centred on the seal line and should not be culled
+* Flotsam will appear below the sea line clamp point and should not be culled
 
 ## The Sea Floor
 The sea floor is a flat horizontal line of pixels that is rendered  when the player is in the bottom cube. 
 
 The sea floor should never ascend above the player's position (e.g. the centre of the screen space).
 
-* Artifacts should appear a pixel above the sea floor and should not be culled
+* Treasure Y position varies by Z-scale to create a rising effect as the player approaches:
+  - **SCALE_4** (farthest, 4 cubes): the 4×4 block sits exactly on the sea floor line (bottom at sfy)
+  - **SCALE_8** (3 cubes): sprite bottom extends 2px below the floor line
+  - **SCALE_16** (2 cubes): sprite bottom extends 4px below the floor line
+  - **SCALE_32** (closest, 0-1 cubes): sprite is centred on the floor line (16px above, 16px below sfy)
+* Treasure XOR erase must occur before the sea floor is updated each frame to prevent XOR artifacts where sprites overlap the floor region. The draw order is: treasure erase → seafloor update → treasure draw.
 * Rays, Sharks and Flotsam Treasures do not appear at this level.
 * The Great Old One graphic should only be drawn to the scanline where the sea floor appears.
 
 ## Minimap
 The 2d minimap is an overhead (top-down) view displayed in the bottom right hand corner of the screen, using XOR writes. The X axis (left/right) maps horizontally and the Z axis (forward/backward) maps vertically; the depth axis (Y) is used only for filtering.
+
+### Minimap Orientation
+The minimap has a north-south orientation. On the main screen, O/P Left and Right map to West/East Left and Right on the Minimap. Q/A Z-depth on the main screen maps to North/South Up and Down on the Minimap.
+
+Specifically:
+* O (left) increases gx → moves the player dot LEFT (west) on the minimap
+* P (right) decreases gx → moves the player dot RIGHT (east) on the minimap
+* Q (forward, into screen) increases gz → moves the player dot UP (north) on the minimap
+* A (backward, out of screen) decreases gz → moves the player dot DOWN (south) on the minimap
+
+Entity rendering on the main screen is consistent with this orientation: an entity with higher gx (west of the player) appears to the LEFT on the main screen, matching its position to the LEFT on the minimap. The Z axis is not represented spatially on the main screen — it maps to sprite scale only (close = large, far = small). Shark pursuit AI also follows this convention, incrementing gdx/gdz toward the player's gx/gz values.
+
+This orientation is verified by automated tests (`make test`) that confirm the axis mappings are consistent across player movement, entity screen positioning, minimap plotting, Z-scale mapping, and predator pursuit AI.
 
 The minimap will be 32x32 pixels in size so that the 32x32 horizontal grid is fully visible, with each grid position mapping 1:1 to a minimap pixel. It will be a white grid divided into 4x4 squares of 8px width and height.
 
@@ -352,54 +463,6 @@ The GOO is a large angler fish face (approximately 20×20 characters) rendered a
    - Uses XOR writes so the same routine can erase the previous frame before drawing the next
 
 This half-storage approach halves the compressed data size for the GOO frames while producing the full symmetric face at runtime. The bit-reversal XOR blit is fast enough to animate the 4-frame death sequence without visible delay.
-
-### The 3 Layers of Depth
-
-Although the sea is wide, it is only 3 levels deep. However the cubes in the grid are much deeper than they are wide. It should take approximately 10 seconds to descend each level.
-
-A single master paper colour (read via `depth_get_paper()`) is used for the border, starfield attributes, diver sprite, predator sprites, HUD gauges, and depth bar. The beeper sound routine preserves the current border colour when toggling the speaker bit on port 254.
-
-When the player descends or ascends a depth level, the paper/ink colors change rapidly (~0.15 seconds) using the following cycle;
-
-1. Depth 1 -> Depth 2: 
-Ink changes from white bright -> white -> yellow bright -> yellow -> cyan bright -> cyan -> green bright
-Paper changes from cyan -> green bright -> green  -> magenta light -> magenta -> red  bright -> blue bright
-
-2. Depth 2 -> Depth 3:
-Ink changes from green bright -> white  
-Paper changes from  blue bright -> blue -> black
-
-3. Depth 3 -> Depth 2:
-Ink changes from white bright -> white -> green bright
-Paper changes from black -> blue -> blue bright
-
-4. Depth 2 -> Depth 1:
-Ink changes from green bright -> cyan -> cyan bright -> yellow -> yellow bright -> white -> white bright
-Paper changes from blue bright -> red -> red bright -> magenta -> magenta bright -> cyan 
-
-### Depth 1
-
-At the top, the Sea Line is rendered by a single sinewave line of pixels. The sinewave is animated to create an undulating effect. 
-
-Bubbles above this line are culled. This line quickly scrolls off the screen as the player descends.
-
-Paper colour is cyan (non-bright, matching the border), Ink colour is white. This level has 100 starfield bubbles. Only Rays Exist at this level.
-
-If the current cube contains flotsam, the treasure is rendered at a random position on the surface line. It should be updated as the pixel line undulates.
-
-### Depth 2
-
-Paper colour is blue, Ink colour is green. This level has 50 starfield bubbles. Only Sharks exist at this level.
-
-This level contains no treasure.
-
-### Depth 3
-
-Paper colour is black, Ink colour is white with no brightness. This level has 15 starfield bubbles. Only Great Old Ones exist at this level.
-
-This level contains archaeological treasure. The bottom of the lowest cube should be rendered as a single dark blue line of pixels (the sea floor). 
-
-If treasure is present, it should be rendered at a random position on this line.
 
 ## Log Entries
 

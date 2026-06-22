@@ -26,9 +26,13 @@ void treasure_check_collection(void);
 /* Reset treasure render tracking (call on game init). */
 void treasure_init_render(void);
 
-/* Erase previous frame + draw visible treasure sprites.
+/* XOR-erase treasure sprites from previous frame.
+ * Must be called BEFORE seafloor changes to avoid XOR artifacts. */
+void treasure_erase(void);
+
+/* Draw visible treasure sprites at current positions.
  * frame_ctr drives shimmer animation (toggle every 8 frames). */
-void treasure_render(uint8_t frame_ctr);
+void treasure_draw(uint8_t frame_ctr);
 
 /* Erase all drawn treasure sprites (call on depth change). */
 void treasure_hide_all(void);

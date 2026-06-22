@@ -134,21 +134,22 @@ void minimap_draw(void)
         }
     }
 
-    /* --- Draw treasure dots (XOR, red, 1x1 pixel, all depths) --- */
+    /* --- Draw treasure dots (XOR, red, 1x1 pixel, same depth only) --- */
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
+        if (treasures[i].gy != player.gy) continue;
         px = MM_PX + grid_to_mm(treasures[i].gx);
         py = MM_PY + grid_to_mm(treasures[i].gz);
         xor_plot(px, py);
-        /* Set cell attribute to red ink (mirrored) */
         cell_col = MINIMAP_COL + 3 - (treasures[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (treasures[i].gz >> 3);
         ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
     }
 
-    /* --- Draw predator dots (XOR, green, 1x1, all depths) --- */
+    /* --- Draw predator dots (XOR, green, 1x1, same depth only) --- */
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
+        if (predators[i].type != player.gy) continue;
         px = MM_PX + grid_to_mm(predators[i].gx);
         py = MM_PY + grid_to_mm(predators[i].gz);
         xor_plot(px, py);

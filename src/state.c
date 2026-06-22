@@ -562,6 +562,7 @@ static game_state_t state_game_tick(void)
     vsync_wait();
 
     predators_erase();
+    treasure_erase();
 
     {
         uint8_t trans = depth_is_transitioning();
@@ -603,7 +604,8 @@ static game_state_t state_game_tick(void)
 
         /* Entity Y anchor: top of a 32px sprite at the depth's feature */
         if (player.gy == 0) {
-            int16_t ey = (sly_i >= 0) ? sly_i - 32 : 20;
+            uint8_t clamp = sealine_get_clamp_y();
+            int16_t ey = (sly_i >= 0) ? (int16_t)clamp : 20;
             if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
             if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
             env_entity_y = (uint8_t)ey;
@@ -628,7 +630,7 @@ static game_state_t state_game_tick(void)
     if (!depth_is_transitioning())
         predators_draw(frame);
     predators_cleanup_attrs();
-    treasure_render(frame);
+    treasure_draw(frame);
     sprites_player_draw((frame >> 3) % diver_frame_count);
     if (player.invuln_timer > 0 && (player.invuln_timer & 0x02))
         set_attr_rect(DIVER_X >> 3, DIVER_Y >> 3, 2, 2, depth_get_attr(current_depth));

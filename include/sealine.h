@@ -23,6 +23,12 @@ void sealine_erase(void);
  * Bubbles and rays with sy < this value should not be drawn. */
 uint8_t sealine_get_cull_y(void);
 
+/* Get the entity clamp y-coordinate.
+ * Entity tops must be >= this value to stay below the sea line.
+ * Treats the sea line as a straight line at its bottommost pixel,
+ * rounded down to the bottom of the character row. */
+uint8_t sealine_get_clamp_y(void);
+
 /* Returns 1 if the sea line is currently visible on screen */
 uint8_t sealine_is_visible(void);
 

@@ -14,6 +14,7 @@
 #include "../include/depth.h"
 #include "../include/sound.h"
 #include "../include/entity_render.h"
+#include "../include/sealine.h"
 
 /* --- Treasure sprite assets (32x32, 2 frames each) --- */
 #include "../include/statue.h"
@@ -179,16 +180,27 @@ static const uint8_t *trs_pick_frame(uint8_t type, uint8_t scale,
     }
 }
 
-void treasure_render(uint8_t frame_ctr)
-{
-    uint8_t i, scale;
-    int8_t dgx, dgz;
-    int16_t dx_sub;
-    uint8_t sx, attr;
+/* Subtract from seafloor_get_y() to produce the sy param for
+ * entity_pool_draw at each scale.  Accounts for entity_pool_draw's
+ * internal scale_y_offset so that:
+ *   SCALE_4  (far)  → sprite bottom sits on the floor line
+ *   SCALE_32 (close) → sprite centred on the floor line */
+static const uint8_t trs_floor_offset[] = { 16, 28, 30, 32 };
 
+void treasure_erase(void)
+{
     entity_pool_erase(&trs_pool);
+}
+
+void treasure_draw(uint8_t frame_ctr)
+{
+    uint8_t i, scale, sx, attr, sy, use_floor, floor_y;
+    int8_t dgx, dgz;
+    int16_t dx_sub, sy_i;
 
     attr = depth_get_paper() | 0x07;
+    use_floor = (player.gy == GRID_D - 1 && seafloor_is_visible());
+    floor_y = use_floor ? seafloor_get_y() : 0;
 
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
@@ -208,7 +220,16 @@ void treasure_render(uint8_t frame_ctr)
                  + ((CUBE_SUB_XY / 2) - player.sub_x);
         sx = entity_screen_x(dx_sub);
 
-        if (!entity_pool_draw(&trs_pool, sx, env_entity_y, scale,
+        if (use_floor) {
+            sy_i = (int16_t)floor_y - trs_floor_offset[scale];
+            if (sy_i < PRED_Y_MIN) sy_i = PRED_Y_MIN;
+            if (sy_i > PRED_Y_MAX) sy_i = PRED_Y_MAX;
+            sy = (uint8_t)sy_i;
+        } else {
+            sy = env_entity_y;
+        }
+
+        if (!entity_pool_draw(&trs_pool, sx, sy, scale,
                               trs_pick_frame(treasures[i].type, scale, frame_ctr),
                               attr))
             break;

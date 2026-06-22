@@ -107,7 +107,7 @@ HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
 # --- Top-level targets ---
 all: downship.tap
 
-.PHONY: all run clean assets test-legacy
+.PHONY: all run clean assets test-legacy test
 
 assets: $(GENERATED_HEADERS)
 
@@ -118,6 +118,16 @@ run: downship.tap
 downship.tap: $(SRCS) $(HEADERS)
 	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship $(SRCS) $(LDFLAGS)
 
+# --- Automated tests (run on ZEsarUX headless) ---
+TEST_CFLAGS=+zx -vn -SO3 -zorg=32768 -startup=31 --opt-code-speed -compiler=sdcc -mz80 \
+            --reserve-regs-iy --allow-unsafe-read
+
+tests/test_orientation.tap: tests/test_orientation.c config/game_config.h
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(TEST_CFLAGS) -o tests/test_orientation tests/test_orientation.c -create-app
+
+test: tests/test_orientation.tap
+	$(PYTHON) tests/run_tests.py tests/test_orientation.tap
+
 # --- Legacy single-file build (regression reference) ---
 test-legacy: starfield.c include/diver.h
 	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship starfield.c -lm -create-app
@@ -126,3 +136,4 @@ test-legacy: starfield.c include/diver.h
 clean:
 	rm -f downship downship.tap downship_CODE.bin downship_data_user.bin downship_code.tap *.o *.map
 	rm -f $(GENERATED_HEADERS)
+	rm -f tests/test_orientation tests/test_orientation.tap tests/test_orientation_CODE.bin tests/test_orientation_data_user.bin tests/test_orientation_code.tap
