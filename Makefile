@@ -93,12 +93,12 @@ GENERATED_HEADERS = include/diver.h \
 
 # --- Source files (multi-file build) ---
 SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \
-       src/hw_detect.c src/depth.c src/sealine.c src/vsync.c src/sprites.c \
+       src/music.c src/hw_detect.c src/depth.c src/sealine.c src/vsync.c src/sprites.c \
        src/player.c src/treasure.c src/hud.c src/minimap.c src/predators.c \
        src/entity_render.c src/dzx0.c
 
 HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
-          include/gfx.h include/input.h include/sound.h include/depth.h \
+          include/gfx.h include/input.h include/sound.h include/music.h include/depth.h \
           include/sealine.h include/vsync.h include/sprites.h \
           include/player.h include/treasure.h include/hud.h include/minimap.h \
           include/predators.h include/entity_render.h include/dzx0.h \

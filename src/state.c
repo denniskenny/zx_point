@@ -15,6 +15,7 @@
 #include "../include/input.h"
 #include "../include/hw.h"
 #include "../include/sound.h"
+#include "../include/music.h"
 #include "../include/depth.h"
 #include "../include/vsync.h"
 #include "../include/sprites.h"
@@ -139,12 +140,14 @@ static game_state_t state_title_init(void)
 
     key_debounce = 1;
     anim_timer = 0;   /* reuse as title frame counter for PRNG seed */
+    music_start(music_oro, music_oro_len, 1);   /* looping title shanty */
     return STATE_TITLE;
 }
 
 static game_state_t state_title_tick(void)
 {
     vsync_wait();
+    music_tick();
     anim_timer++;     /* free-running counter — keypress timing = entropy */
     if (key_debounce) {
         if (!any_key_pressed()) key_debounce = 0;
@@ -209,6 +212,7 @@ static game_state_t state_intro_init(void)
 static game_state_t state_intro_tick(void)
 {
     vsync_wait();
+    music_tick();    /* title shanty continues over the briefing */
     if (key_debounce) {
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_INTRO;
@@ -324,6 +328,8 @@ static void lintro_sealine_tick(void)
 static game_state_t state_level_intro_init(void)
 {
     uint8_t i;
+
+    music_stop();   /* dive begins — gameplay owns the speaker (sonar) */
 
     lintro_saved_vsync = vsync_mode;
     vsync_mode = 0;
@@ -938,17 +944,27 @@ static game_state_t state_summary_init(void)
     }
 
     key_debounce = 1;
+
+    if (game_over_flag == 1) {
+        music_start(music_spanish, music_spanish_len, 0);   /* dirge, once */
+    } else {
+        if (game_over_flag == 0)
+            music_play_blocking(music_fanfare, music_fanfare_len);
+        music_start(music_lowlands, music_lowlands_len, 1); /* shanty, loop */
+    }
     return STATE_SUMMARY;
 }
 
 static game_state_t state_summary_tick(void)
 {
     vsync_wait();
+    music_tick();
     if (key_debounce) {
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_SUMMARY;
     }
     if (any_key_pressed()) {
+        music_stop();
         if (game_over_flag == 1)
             return STATE_TITLE;
         if (game_over_flag == 2)
