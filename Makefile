@@ -76,6 +76,10 @@ include/goo_data.h: $(GOO_SRC) tools/scr_dither_reveal.py tools/scr_crop_zx0.py
 		goo_frame1:assets/goo_1.scr goo_frame2:assets/goo_3.scr \
 		goo_frame3:assets/goo_5.scr goo_frame4:assets/goo_6.scr
 
+# Title logo banner (256x112 .zxp → screen-layout pixels → ZX0 → C header)
+include/title_logo.h: assets/logo.zxp tools/zxp2zx0.py
+	$(PYTHON) tools/zxp2zx0.py $< $@ --name title_logo --zx0 $(ZX0)
+
 # Vignette (full 6912-byte .scr → ZX0 compressed C header)
 include/vignette.h: assets/vignette.scr tools/zx0_to_header.py
 	rm -f /tmp/vignette.zx0
@@ -89,7 +93,8 @@ GENERATED_HEADERS = include/diver.h \
     include/boat.h \
     include/minimap_grid.h \
     include/goo_data.h \
-    include/vignette.h
+    include/vignette.h \
+    include/title_logo.h
 
 # --- Source files (multi-file build) ---
 SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \

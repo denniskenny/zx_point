@@ -27,6 +27,8 @@
 #include "../include/sealine.h"
 #include "../include/vignette.h"
 #include "../include/dzx0.h"
+#include "../include/title_logo.h"
+#include "../include/dzx0.h"
 #include "../include/goo_data.h"
 #include "../include/entity_render.h"
 #include "../include/boat.h"
@@ -133,10 +135,13 @@ static game_state_t state_title_init(void)
 
     screen_clear(0x07, 0);   /* white ink, black paper, black border */
 
-    print_at(3, 3,  "They That Go Down To");
-    print_at(4, 4,  "The Sea In Ships");
-    print_at(8, 10, "Press any key");
-    print_at(3, 20, "Copyright Actual Size 2026");
+    /* Title logo banner: ZX0-compressed, screen-layout pixels decompress
+     * straight to the top 112 rows; its attribute cells go to char rows 0-13. */
+    dzx0_decompress(title_logo_zx0, SCREEN);
+    dzx0_decompress(title_logo_attr_zx0, ATTR);
+
+    print_at(6, 17, "Press any key");
+    print_at(3, 21, "Copyright Actual Size 2026");
 
     key_debounce = 1;
     return STATE_TITLE;
