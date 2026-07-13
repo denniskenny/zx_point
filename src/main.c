@@ -8,9 +8,14 @@
 #include "../include/hw.h"
 #include "../include/vsync.h"
 #include "../include/state.h"
+#include "../include/sprites_packed.h"
 
 int main(void)
 {
+    /* Decompress all sprite pixels into the low-RAM arena before any state
+       draws them (title/level-intro/game all rely on it). */
+    sprites_unpack();
+
     /* Detect hardware BEFORE locking paging — the 128K bank-
        switching test and +2A/+3 floating bus both need paging
        enabled to work. */

@@ -31,7 +31,7 @@
 #include "../include/dzx0.h"
 #include "../include/goo_data.h"
 #include "../include/entity_render.h"
-#include "../include/boat.h"
+#include "../include/sprites_packed.h"
 
 /* --- Bubblefield public API (from src/bubblefield.c) --- */
 extern void init_bubbles(void);

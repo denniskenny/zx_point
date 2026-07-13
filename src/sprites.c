@@ -13,9 +13,20 @@
 #include "../config/game_config.h"
 #include "../include/sprites.h"
 #include "../include/gfx.h"
-#include "../include/diver.h"
+#include "../include/dzx0.h"
+#include "../include/sprites_packed.h"
+#include "../include/sprites_blob.h"   /* defines sprites_zx0[] (once) */
 
 const uint8_t diver_frame_count = DIVER_FRAMES;
+
+/* ------------------------------------------------------------------ */
+/* Decompress all sprite pixels into the low-RAM arena. Call once at    */
+/* boot, before any sprite is drawn (see main.c).                       */
+/* ------------------------------------------------------------------ */
+void sprites_unpack(void)
+{
+    dzx0_decompress(sprites_zx0, (uint8_t *)SPRITE_ARENA);
+}
 
 /* ------------------------------------------------------------------ */
 /* Initialise sprite system: clear pixel RAM                           */

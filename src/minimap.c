@@ -18,7 +18,7 @@
 #include "../include/player.h"
 #include "../include/treasure.h"
 #include "../include/predators.h"
-#include "../include/minimap_grid.h"
+#include "../include/sprites_packed.h"
 #include "../include/depth.h"
 
 /* Pixel origin of the minimap */

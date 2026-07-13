@@ -18,13 +18,7 @@
 #include "../include/sealine.h"
 
 /* --- Treasure sprite assets (32x32, 2 frames each) --- */
-#include "../include/statue.h"
-#include "../include/tablet.h"
-#include "../include/altar.h"
-#include "../include/firstaid.h"
-#include "../include/oxygen_tank.h"
-#include "../include/map_item.h"
-#include "../include/log_item.h"
+#include "../include/sprites_packed.h"
 
 /* --- PRNG (shared algorithm, separate stream); seeded from the title --- */
 static prng_t t_rng = { 0x1337, 0 };

@@ -17,8 +17,7 @@
 #include "../include/gfx.h"
 #include "../include/depth.h"
 #include "../include/entity_render.h"
-#include "../include/ray.h"
-#include "../include/shark.h"
+#include "../include/sprites_packed.h"
 
 /* --- PRNG (shared algorithm, separate stream from bubblefield & treasure) --- */
 static prng_t p_rng = { 0xBEEF, 0 };

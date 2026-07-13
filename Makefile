@@ -86,12 +86,18 @@ include/vignette.h: assets/vignette.scr tools/zx0_to_header.py
 	$(ZX0) $< /tmp/vignette.zx0
 	$(PYTHON) tools/zx0_to_header.py $@ vignette_zx0:/tmp/vignette.zx0
 
-GENERATED_HEADERS = include/diver.h \
-    include/ray.h include/shark.h \
-    include/statue.h include/tablet.h include/altar.h \
-    include/firstaid.h include/oxygen_tank.h include/map_item.h include/log_item.h \
-    include/boat.h \
-    include/minimap_grid.h \
+# All resident sprite pixels are packed into one ZX0 blob (sprites_blob.h) +
+# arena-pointer macros (sprites_packed.h), decompressed to low RAM at boot.
+SPRITE_HEADERS = include/diver.h include/ray.h include/shark.h \
+    include/statue.h include/tablet.h include/altar.h include/firstaid.h \
+    include/oxygen_tank.h include/map_item.h include/log_item.h include/boat.h \
+    include/minimap_grid.h
+include/sprites_packed.h: $(SPRITE_HEADERS) tools/pack_sprites.py
+	$(PYTHON) tools/pack_sprites.py --arena 0x6A00 --zx0 $(ZX0)
+include/sprites_blob.h: include/sprites_packed.h
+
+GENERATED_HEADERS = $(SPRITE_HEADERS) \
+    include/sprites_packed.h include/sprites_blob.h \
     include/goo_data.h \
     include/vignette.h \
     include/title_logo.h
