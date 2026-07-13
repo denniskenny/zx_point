@@ -50,6 +50,9 @@ def build_engine(src_text, src_path):
         "                PUBLIC  _tritone_ticks",
         "",
     ]
+    def norm(x):
+        return re.sub(r'\s+', ' ', x.split(';')[0].strip())
+
     i = 0
     while i < len(engine_src):
         l = engine_src[i]
@@ -57,6 +60,57 @@ def build_engine(src_text, src_path):
 
         if s.upper().startswith("ORG"):                       # linker places it
             i += 1
+            continue
+
+        # --- click reduction: replace the row-end block (unconditional
+        #     "XOR A / OUT ($FE),A" reset + key check + "JP Z,NEXT_ROW") with a
+        #     version that, when the NEXT row is a pure sustain ($01,$01,$01,
+        #     no drum/note/end), keeps the speaker toggling and replays the
+        #     same channels for another row instead of zeroing the speaker and
+        #     re-reading/re-setting-up. The XOR-A/OUT reset now happens ONLY on
+        #     real note-change rows, so held notes no longer click each row. ---
+        if norm(l) == "XOR A" and i + 1 < len(engine_src) \
+                and norm(engine_src[i + 1]) == "OUT ($FE),A":
+            j = i
+            while "Z,NEXT_ROW" not in engine_src[j].replace(" ", ""):
+                j += 1
+            out += [
+                "                LD    (PREV_HL + 1),HL      ; save CH0 phase",
+                "",
+                "                IN    A,($1F)               ; --- key check (every row) ---",
+                "                AND   $1F",
+                "                LD    C,A",
+                "                XOR   A",
+                "                IN    A,($FE)",
+                "                CPL",
+                "CHECK_KEMPSTON: OR    C            ; set to NOP if no kempston i/f",
+                "                AND   $1F",
+                "                JP    NZ,STOP_PLAYER        ; key/joystick pressed -> stop",
+                "",
+                "                LD    HL,(NEXT_ROW_POS+1)   ; peek next row for pure sustain",
+                "                LD    A,(HL)",
+                "                CP    1",
+                "                JR    NZ,ROW_CHANGE",
+                "                INC   HL",
+                "                LD    A,(HL)",
+                "                CP    1",
+                "                JR    NZ,ROW_CHANGE",
+                "                INC   HL",
+                "                LD    A,(HL)",
+                "                CP    1",
+                "                JR    NZ,ROW_CHANGE",
+                "                INC   HL",
+                "                LD    (NEXT_ROW_POS+1),HL   ; consume 3 sustain bytes",
+                "                LD    BC,(CNT0+1)           ; restore CH0 incr (C clobbered)",
+                "                LD    DE,(TEMPO+1)          ; reload row-duration counter",
+                "                LD    HL,(PREV_HL+1)        ; restore CH0 phase",
+                "                JP    SOUND_LOOP            ; continue tone, no reset/click",
+                "ROW_CHANGE:",
+                "                XOR   A",
+                "                OUT   ($FE),A               ; reset speaker only on real changes",
+                "                JP    NEXT_ROW",
+            ]
+            i = j + 1
             continue
         if s.replace(" ", "").upper() == "LDHL,MUSICDATA":     # drop standalone stub
             assert "TRI_PLAY" in engine_src[i + 1] and engine_src[i + 2].strip().upper() == "RET"

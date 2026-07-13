@@ -37,6 +37,13 @@ data + a wrapper that `CALL`s the `EXTERN TRI_PLAY`, so the engine sits in the
 binary once no matter how many tunes you add. All tunes share one
 `tritone_ticks` entropy counter (valid right after any `*_play()` returns).
 
+`gen_tritone_module.py --engine` also patches the row-end so the speaker is
+only reset (`XOR A; OUT ($FE),A`) on real note-change rows: a pure sustain row
+(`$01,$01,$01`, no drum) replays the same channels without the reset+re-setup,
+so held notes don't click every row (matters for slow, sustain-heavy tunes).
+Contended RAM is NOT the cause of clicks here — with `-zorg=$8000` and 128K
+paging locked to bank 0, the engine and data live in uncontended RAM.
+
 ## Tritone capabilities & limits
 
 - **3 tone channels** (Lead / Harmony / Bass), each with **8 pulse widths**

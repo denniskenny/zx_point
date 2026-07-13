@@ -245,19 +245,40 @@ DUTY2:          CP    128              ;  7 Ts
                 JP    NZ,SOUND_LOOP    ; 10 Ts  = 153
                 DEC   D                ;  4 Ts
                 JP    NZ,SOUND_LOOP    ; 10 Ts
-                XOR   A
-                OUT   ($FE),A
-                LD    (PREV_HL + 1),HL
+                LD    (PREV_HL + 1),HL      ; save CH0 phase
 
-                IN    A,($1F)
+                IN    A,($1F)               ; --- key check (every row) ---
                 AND   $1F
                 LD    C,A
                 XOR   A
                 IN    A,($FE)
                 CPL
-CHECK_KEMPSTON: OR    C            ; This is set to NOP if no kempston i/f detected
+CHECK_KEMPSTON: OR    C            ; set to NOP if no kempston i/f
                 AND   $1F
-                JP    Z,NEXT_ROW   ; Jump to next row unless key/joystick pressed
+                JP    NZ,STOP_PLAYER        ; key/joystick pressed -> stop
+
+                LD    HL,(NEXT_ROW_POS+1)   ; peek next row for pure sustain
+                LD    A,(HL)
+                CP    1
+                JR    NZ,ROW_CHANGE
+                INC   HL
+                LD    A,(HL)
+                CP    1
+                JR    NZ,ROW_CHANGE
+                INC   HL
+                LD    A,(HL)
+                CP    1
+                JR    NZ,ROW_CHANGE
+                INC   HL
+                LD    (NEXT_ROW_POS+1),HL   ; consume 3 sustain bytes
+                LD    BC,(CNT0+1)           ; restore CH0 incr (C clobbered)
+                LD    DE,(TEMPO+1)          ; reload row-duration counter
+                LD    HL,(PREV_HL+1)        ; restore CH0 phase
+                JP    SOUND_LOOP            ; continue tone, no reset/click
+ROW_CHANGE:
+                XOR   A
+                OUT   ($FE),A               ; reset speaker only on real changes
+                JP    NEXT_ROW
 
 STOP_PLAYER:
 PREV_SP:        LD    SP,0
