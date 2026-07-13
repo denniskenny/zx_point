@@ -1,0 +1,106 @@
+================================================================================
+ Spanish Ladies (Farewell To Spain) — Tritone arrangement (Game Over screen)
+================================================================================
+Waltz in E minor, played slow (~60 BPM) as a funeral dirge.  Source ABC:
+design.md "Game Over: Spanish Ladies (Farewell To Spain) — Slowed".
+Chords: Em|Em|C|D|Em|Am|D|D|G|Am|Em|Em|C|D|Bm|Em.
+
+KEY / ARRANGEMENT
+  * Key: E minor (Emin) => F is F#; all other notes natural.
+  * Meter: 3/4 waltz, L=1/8, so each bar = 6 eighth-notes -> 6 rows.
+  * Octaves (ABC -> pitch):  X, = octave 3,  X = octave 4.  Lead sits A3-B4,
+    Harmony a third below, Bass root-5th-5th in octave 3.
+  * Bass waltz pattern: root (beat 1) then 5th (beats 2,3).
+  * The 2-eighth anacrusis (Lead B3 / Harm G3) is folded into BAR 16 rows 4-5
+    so the tune starts on the downbeat and the pickup leads back in on loop.
+  * Notes ring until the next attack (Tritone sustain) -> ties need no markup.
+
+TEMPO
+  Q:1/4 = 60 BPM (dirge).  6 rows/bar (1 row = 1/8 note).  One eighth at
+  60 BPM quarter = 0.5 s = 25 frames.
+rows  = 6
+speed = 25
+
+================================================================================
+ PER-BAR ATTACK TABLES        (row : note[@pulse-width][(duration in rows)])
+================================================================================
+
+BAR 1   E2 E2 F2 | E,2 B,2 B,2
+  CH1 Lead :  0:E4(2)  2:E4(2)  4:F#4(2)
+  CH2 Harm :  0:C4(2)  2:C4(2)  4:D4(2)
+  CH3 Bass :  0:E3(2)  2:B3(2)  4:B3(2)
+
+BAR 2   E4 EF | E,2 B,2 B,2
+  CH1 Lead :  0:E4(4)  4:E4(1)  5:F#4(1)
+  CH2 Harm :  0:C4(4)  4:C4(1)  5:D4(1)
+  CH3 Bass :  0:E3(2)  2:B3(2)  4:B3(2)
+
+BAR 3   G2 F2 E2 | C,2 G,2 G,2
+  CH1 Lead :  0:G4(2)  2:F#4(2) 4:E4(2)
+  CH2 Harm :  0:E4(2)  2:D4(2)  4:C4(2)
+  CH3 Bass :  0:C3(2)  2:G3(2)  4:G3(2)
+
+BAR 4   ED B,2 B,2 | D,2 A,2 A,2
+  CH1 Lead :  0:E4(1)  1:D4(1)  2:B3(2)  4:B3(2)
+  CH2 Harm :  0:C4(1)  1:B3(1)  2:G3(2)  4:G3(2)
+  CH3 Bass :  0:D3(2)  2:A3(2)  4:A3(2)
+
+BAR 5   E2 E2 F2 | E,2 B,2 B,2
+  CH1 Lead :  0:E4(2)  2:E4(2)  4:F#4(2)
+  CH2 Harm :  0:C4(2)  2:C4(2)  4:D4(2)
+  CH3 Bass :  0:E3(2)  2:B3(2)  4:B3(2)
+
+BAR 6   E4 F2 | A,2 E,2 E,2
+  CH1 Lead :  0:E4(4)  4:F#4(2)
+  CH2 Harm :  0:C4(4)  4:D4(2)
+  CH3 Bass :  0:A3(2)  2:E3(2)  4:E3(2)
+
+BAR 7   G2 A2 G2 | D,2 A,2 A,2
+  CH1 Lead :  0:G4(2)  2:A4(2)  4:G4(2)
+  CH2 Harm :  0:E4(2)  2:F#4(2) 4:E4(2)
+  CH3 Bass :  0:D3(2)  2:A3(2)  4:A3(2)
+
+BAR 8   F4 F2 | D,2 A,2 A,2
+  CH1 Lead :  0:F#4(4) 4:F#4(2)
+  CH2 Harm :  0:D4(4)  4:D4(2)
+  CH3 Bass :  0:D3(2)  2:A3(2)  4:A3(2)
+
+BAR 9   G2 F2 G2 | G,2 D,2 D,2
+  CH1 Lead :  0:G4(2)  2:F#4(2) 4:G4(2)
+  CH2 Harm :  0:E4(2)  2:D4(2)  4:E4(2)
+  CH3 Bass :  0:G3(2)  2:D3(2)  4:D3(2)
+
+BAR 10  A2 G2 AA | A,2 E,2 E,2
+  CH1 Lead :  0:A4(2)  2:G4(2)  4:A4(1)  5:A4(1)
+  CH2 Harm :  0:F#4(2) 2:E4(2)  4:F#4(1) 5:F#4(1)
+  CH3 Bass :  0:A3(2)  2:E3(2)  4:E3(2)
+
+BAR 11  BA G2 E2 | E,2 B,2 B,2
+  CH1 Lead :  0:B4(1)  1:A4(1)  2:G4(2)  4:E4(2)
+  CH2 Harm :  0:G4(1)  1:F#4(1) 2:E4(2)  4:C4(2)
+  CH3 Bass :  0:E3(2)  2:B3(2)  4:B3(2)
+
+BAR 12  ED B,2 BA | E,2 B,2 B,2
+  CH1 Lead :  0:E4(1)  1:D4(1)  2:B3(2)  4:B4(1)  5:A4(1)
+  CH2 Harm :  0:C4(1)  1:B3(1)  2:G3(2)  4:G4(1)  5:F#4(1)
+  CH3 Bass :  0:E3(2)  2:B3(2)  4:B3(2)
+
+BAR 13  G2 E2 E2 | C,2 G,2 G,2
+  CH1 Lead :  0:G4(2)  2:E4(2)  4:E4(2)
+  CH2 Harm :  0:E4(2)  2:C4(2)  4:C4(2)
+  CH3 Bass :  0:C3(2)  2:G3(2)  4:G3(2)
+
+BAR 14  ED B,2 A,2 | D,2 A,2 A,2
+  CH1 Lead :  0:E4(1)  1:D4(1)  2:B3(2)  4:A3(2)
+  CH2 Harm :  0:C4(1)  1:B3(1)  2:G3(2)  4:F#3(2)
+  CH3 Bass :  0:D3(2)  2:A3(2)  4:A3(2)
+
+BAR 15  B,2 G2 F2 | B,2 F,2 F,2
+  CH1 Lead :  0:B3(2)  2:G4(2)  4:F#4(2)
+  CH2 Harm :  0:G3(2)  2:D4(2)  4:D4(2)
+  CH3 Bass :  0:B3(2)  2:F#3(2) 4:F#3(2)
+
+BAR 16  E4 (+ anacrusis pickup on rows 4-5) | E,4
+  CH1 Lead :  0:E4(4)  4:B3(2)
+  CH2 Harm :  0:C4(4)  4:G3(2)
+  CH3 Bass :  0:E3(4)

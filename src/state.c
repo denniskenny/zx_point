@@ -153,9 +153,9 @@ static game_state_t state_title_tick(void)
     }
 
     /* Blocking 3-channel Tritone shanty; returns on any key/joystick.
-     * oro_ticks (rows played) is our keypress-timing entropy source. */
+     * tritone_ticks (rows played) is our keypress-timing entropy source. */
     oro_play();
-    treasure_seed((uint16_t)oro_ticks * 251 + 0xA3B7);
+    treasure_seed((uint16_t)tritone_ticks * 251 + 0xA3B7);
     return STATE_INTRO;
 }
 
@@ -943,34 +943,34 @@ static game_state_t state_summary_init(void)
 
     key_debounce = 1;
 
-    if (game_over_flag == 1) {
-        music_start(music_spanish, music_spanish_len, 0);   /* dirge, once */
-    } else {
-        if (game_over_flag == 0)
-            music_play_blocking(music_fanfare, music_fanfare_len);
-        music_start(music_lowlands, music_lowlands_len, 1); /* shanty, loop */
-    }
+    if (game_over_flag == 0)
+        music_play_blocking(music_fanfare, music_fanfare_len);
+    /* The 3-voice Tritone tune (Spanish dirge for game over, Lowlands shanty
+     * for level-complete) is played blocking in the tick; nothing to start. */
     return STATE_SUMMARY;
 }
 
 static game_state_t state_summary_tick(void)
 {
-    vsync_wait();
-    music_tick();
+    /* Wait for any key held on entry to release before the blocking player. */
     if (key_debounce) {
+        vsync_wait();
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_SUMMARY;
     }
-    if (any_key_pressed()) {
-        music_stop();
-        if (game_over_flag == 1)
-            return STATE_TITLE;
-        if (game_over_flag == 2)
-            return STATE_LEVEL_INTRO;
-        current_level++;
-        return STATE_INTRO;
+
+    /* Game over: blocking 3-channel Tritone "Spanish Ladies" dirge. */
+    if (game_over_flag == 1) {
+        spanish_play();                 /* loops the dirge until any key */
+        return STATE_TITLE;
     }
-    return STATE_SUMMARY;
+
+    /* Level complete: blocking 3-channel Tritone "Lowlands Away" shanty. */
+    lowlands_play();                    /* loops the shanty until any key */
+    if (game_over_flag == 2)
+        return STATE_LEVEL_INTRO;
+    current_level++;
+    return STATE_INTRO;
 }
 
 /* ------------------------------------------------------------------ */

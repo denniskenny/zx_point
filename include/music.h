@@ -46,16 +46,19 @@ void music_stop(void);
 void music_play_blocking(const music_note_t *song, uint8_t len);
 
 /* ------------------------------------------------------------------ */
-/* Three-channel Tritone arrangement of "Óró Sé do Bheatha 'Bhaile"   */
-/* (assets/music/oro_linkable.asm, Shiru's Tritone v2 engine).        */
+/* Three-channel Tritone tunes (Shiru's Tritone v2 engine).           */
 /*                                                                    */
-/* oro_play() BLOCKS: it loops the shanty on all three beeper         */
-/* channels and returns only when any key/joystick is pressed. It     */
-/* runs with interrupts disabled and leaves them disabled. oro_ticks  */
-/* holds the number of rows played before the keypress — use it as    */
-/* PRNG entropy after oro_play() returns.                             */
+/* Each NAME_play() BLOCKS: it loops the tune on all three beeper      */
+/* channels and returns only when any key/joystick is pressed.  They  */
+/* run with interrupts disabled and leave them disabled.  All tunes    */
+/* share ONE engine (assets/music/tritone_engine.asm); each is a data  */
+/* module (assets/music/NAME_linkable.asm).  tritone_ticks holds the   */
+/* rows played by the LAST tune before its keypress — use it as PRNG   */
+/* entropy right after a *_play() returns.                            */
 /* ------------------------------------------------------------------ */
-void oro_play(void);
-extern uint16_t oro_ticks;
+void oro_play(void);        /* "Óró Sé do Bheatha 'Bhaile" — title    */
+void lowlands_play(void);   /* "Lowlands Away" — level summary        */
+void spanish_play(void);    /* "Spanish Ladies" dirge — game over     */
+extern uint16_t tritone_ticks;
 
 #endif /* _MUSIC_H_ */

@@ -104,12 +104,40 @@ HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
           include/predators.h include/entity_render.h include/dzx0.h \
           include/goo_data.h $(GENERATED_HEADERS)
 
-# --- Music: C-callable, z88dk-linkable Tritone module for the title screen,
-# generated from the canonical Beepola export (see tools/gen_oro_asm.py). ---
-MUSIC_ASM = assets/music/oro\ se\ do\ bheatha.asm
-MUSIC_LINKABLE = assets/music/oro_linkable.asm
-$(MUSIC_LINKABLE): $(MUSIC_ASM) tools/gen_oro_asm.py
-	$(PYTHON) tools/gen_oro_asm.py $@
+# --- Tritone music -----------------------------------------------------------
+# Pipeline: transcription (.txt) --txt2tritone.py--> Tritone (.asm)
+#           --gen_tritone_module.py--> per-tune data module (_NAME_play).
+# The ~300-line Tritone ENGINE is factored into ONE shared module
+# (tritone_engine.asm, PUBLIC TRI_PLAY); each tune module holds only its song
+# data and CALLs it, so the engine is in the binary once regardless of tune
+# count.  To add a tune NAME: author assets/music/NAME.txt, append
+# assets/music/NAME_linkable.asm to MUSIC_LINKABLE, and call NAME_play().
+# (See .claude/skills/tritone-music.)
+MUSIC_ENGINE = assets/music/tritone_engine.asm
+MUSIC_LINKABLE = $(MUSIC_ENGINE) \
+                 assets/music/oro_linkable.asm \
+                 assets/music/lowlands_linkable.asm \
+                 assets/music/spanish_linkable.asm
+
+# shared engine (extracted once from the Óró export template)
+$(MUSIC_ENGINE): assets/music/oro\ se\ do\ bheatha.asm tools/gen_tritone_module.py
+	$(PYTHON) tools/gen_tritone_module.py "assets/music/oro se do bheatha.asm" -o $@ --engine
+
+# transcription -> Tritone assembly
+assets/music/%.asm: assets/music/%.txt tools/txt2tritone.py
+	$(PYTHON) tools/txt2tritone.py $< -o $@
+
+# Tritone assembly -> per-tune data module (symbol prefix = filename stem)
+assets/music/%_linkable.asm: assets/music/%.asm tools/gen_tritone_module.py
+	$(PYTHON) tools/gen_tritone_module.py $< -o $@ --name $*
+
+# Óró (title) is a hand-authored Beepola export (spaces in the name, no .txt),
+# so it needs an explicit rule with an explicit symbol name.
+assets/music/oro_linkable.asm: assets/music/oro\ se\ do\ bheatha.asm tools/gen_tritone_module.py
+	$(PYTHON) tools/gen_tritone_module.py "assets/music/oro se do bheatha.asm" -o $@ --name oro
+
+# keep generated .asm intermediates from being auto-deleted
+.SECONDARY:
 
 # --- Top-level targets ---
 all: downship.tap
@@ -143,5 +171,5 @@ test-legacy: starfield.c include/diver.h
 clean:
 	rm -f downship downship.tap downship_CODE.bin downship_data_user.bin downship_code.tap *.o *.map
 	rm -f $(GENERATED_HEADERS)
-	rm -f $(MUSIC_LINKABLE) assets/music/oro_linkable.o
+	rm -f $(MUSIC_LINKABLE) assets/music/*.o assets/music/lowlands.asm $(MUSIC_ENGINE)
 	rm -f tests/test_orientation tests/test_orientation.tap tests/test_orientation_CODE.bin tests/test_orientation_data_user.bin tests/test_orientation_code.tap
