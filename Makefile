@@ -104,6 +104,13 @@ HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
           include/predators.h include/entity_render.h include/dzx0.h \
           include/goo_data.h $(GENERATED_HEADERS)
 
+# --- Music: C-callable, z88dk-linkable Tritone module for the title screen,
+# generated from the canonical Beepola export (see tools/gen_oro_asm.py). ---
+MUSIC_ASM = assets/music/oro\ se\ do\ bheatha.asm
+MUSIC_LINKABLE = assets/music/oro_linkable.asm
+$(MUSIC_LINKABLE): $(MUSIC_ASM) tools/gen_oro_asm.py
+	$(PYTHON) tools/gen_oro_asm.py $@
+
 # --- Top-level targets ---
 all: downship.tap
 
@@ -115,8 +122,8 @@ run: downship.tap
 	$(FUSE_RUN)
 
 # --- Compile, link & package (multi-file) ---
-downship.tap: $(SRCS) $(HEADERS)
-	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship $(SRCS) $(LDFLAGS)
+downship.tap: $(SRCS) $(HEADERS) $(MUSIC_LINKABLE)
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship $(SRCS) $(MUSIC_LINKABLE) $(LDFLAGS)
 
 # --- Automated tests (run on ZEsarUX headless) ---
 TEST_CFLAGS=+zx -vn -SO3 -zorg=32768 -startup=31 --opt-code-speed -compiler=sdcc -mz80 \
@@ -136,4 +143,5 @@ test-legacy: starfield.c include/diver.h
 clean:
 	rm -f downship downship.tap downship_CODE.bin downship_data_user.bin downship_code.tap *.o *.map
 	rm -f $(GENERATED_HEADERS)
+	rm -f $(MUSIC_LINKABLE) assets/music/oro_linkable.o
 	rm -f tests/test_orientation tests/test_orientation.tap tests/test_orientation_CODE.bin tests/test_orientation_data_user.bin tests/test_orientation_code.tap

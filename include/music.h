@@ -45,4 +45,17 @@ void music_stop(void);
  * Used for the short level-complete fanfare. */
 void music_play_blocking(const music_note_t *song, uint8_t len);
 
+/* ------------------------------------------------------------------ */
+/* Three-channel Tritone arrangement of "Óró Sé do Bheatha 'Bhaile"   */
+/* (assets/music/oro_linkable.asm, Shiru's Tritone v2 engine).        */
+/*                                                                    */
+/* oro_play() BLOCKS: it loops the shanty on all three beeper         */
+/* channels and returns only when any key/joystick is pressed. It     */
+/* runs with interrupts disabled and leaves them disabled. oro_ticks  */
+/* holds the number of rows played before the keypress — use it as    */
+/* PRNG entropy after oro_play() returns.                             */
+/* ------------------------------------------------------------------ */
+void oro_play(void);
+extern uint16_t oro_ticks;
+
 #endif /* _MUSIC_H_ */

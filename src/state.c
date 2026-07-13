@@ -139,25 +139,24 @@ static game_state_t state_title_init(void)
     print_at(3, 20, "Copyright Actual Size 2026");
 
     key_debounce = 1;
-    anim_timer = 0;   /* reuse as title frame counter for PRNG seed */
-    music_start(music_oro, music_oro_len, 1);   /* looping title shanty */
     return STATE_TITLE;
 }
 
 static game_state_t state_title_tick(void)
 {
-    vsync_wait();
-    music_tick();
-    anim_timer++;     /* free-running counter — keypress timing = entropy */
+    /* Wait for any key held on entry (e.g. from the summary screen) to
+     * release, so the 3-voice shanty isn't skipped the instant it starts. */
     if (key_debounce) {
+        vsync_wait();
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_TITLE;
     }
-    if (any_key_pressed()) {
-        treasure_seed((uint16_t)anim_timer * 251 + 0xA3B7);
-        return STATE_INTRO;
-    }
-    return STATE_TITLE;
+
+    /* Blocking 3-channel Tritone shanty; returns on any key/joystick.
+     * oro_ticks (rows played) is our keypress-timing entropy source. */
+    oro_play();
+    treasure_seed((uint16_t)oro_ticks * 251 + 0xA3B7);
+    return STATE_INTRO;
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,8 +210,7 @@ static game_state_t state_intro_init(void)
 
 static game_state_t state_intro_tick(void)
 {
-    vsync_wait();
-    music_tick();    /* title shanty continues over the briefing */
+    vsync_wait();    /* briefing is silent; the shanty played on the title */
     if (key_debounce) {
         if (!any_key_pressed()) key_debounce = 0;
         return STATE_INTRO;
