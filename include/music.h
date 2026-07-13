@@ -22,13 +22,8 @@ typedef struct {
     uint8_t frames;
 } music_note_t;
 
-/* Songs (defined in music.c). */
-extern const music_note_t music_oro[];           /* title / intro shanty   */
-extern const uint8_t      music_oro_len;
-extern const music_note_t music_lowlands[];       /* level-complete shanty  */
-extern const uint8_t      music_lowlands_len;
-extern const music_note_t music_spanish[];        /* game-over dirge        */
-extern const uint8_t      music_spanish_len;
+/* Songs (defined in music.c).  The sea shanties are now 3-channel Tritone
+ * arrangements (see below); only the short fanfare remains single-voice. */
 extern const music_note_t music_fanfare[];        /* level-complete trigger */
 extern const uint8_t      music_fanfare_len;
 

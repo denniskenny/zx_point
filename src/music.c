@@ -32,67 +32,10 @@
 #define d6  92
 #define e6  82
 
-/* Frames-per-eighth tempo unit for each tune (50 Hz). */
-/* Oro: rousing march.  Lowlands: haunting.  Spanish: slow dirge. */
-
-/* --- Oro Se do Bheatha 'Bhaile (Lead, transposed +1 octave) --- */
-const music_note_t music_oro[] = {
-    {A5,32},{A5,16},{G5, 8},{A5, 8},
-    {B5,16},{A5,16},{G5,16},{E5,16},
-    {G5,32},{G5,16},{G5,12},{A5, 4},
-    {G5,16},{D5,16},{E5,16},{G5,16},
-    {A5,24},{A5, 8},{A5,16},{G5,12},{A5, 4},
-    {B5,16},{A5,16},{B5,16},
-    {d6,64},{d6,16},
-    {e6,16},{B5,16},{d6,16},{B5,16},
-    {A5,28},{B5, 4},{A5,32},
-    {R,  24},   /* breath before the loop */
-};
-const uint8_t music_oro_len = sizeof(music_oro) / sizeof(music_oro[0]);
-
-/* --- Lowlands Away (Lead) --- */
-const music_note_t music_lowlands[] = {
-    {c6,56},{G5,56},
-    {c6,14},{d6,14},{e6,14},{d6,14},{c6,28},{B5,28},
-    {G5,84},{F5,28},
-    {B5,42},{c6,14},{d6,28},{B5,28},
-    {c6,28},{B5,28},{F5,28},{B5,14},{A5,14},
-    {G5,56},{F5,28},{E5,28},
-    {C5,84},
-    {C5,28},
-    {E5,14},{F5,14},{G5,14},{E5,14},{F5,14},{E5,14},{C5,28},
-    {c6,56},{G5,56},
-    {c6,14},{d6,14},{e6,14},{d6,14},{c6,28},{B5,28},
-    {G5,84},{F5,28},
-    {B5,42},{c6,14},{d6,28},{B5,28},
-    {c6,28},{B5,28},{F5,28},{B5,14},{A5,14},
-    {G5,56},{F5,28},{E5,28},
-    {C5,84},
-    {R, 28},
-};
-const uint8_t music_lowlands_len = sizeof(music_lowlands) / sizeof(music_lowlands[0]);
-
-/* --- Spanish Ladies / Farewell To Spain (Lead, slow dirge) --- */
-const music_note_t music_spanish[] = {
-    {B4,50},
-    {E5,50},{E5,50},{FS,50},
-    {E5,100},{E5,25},{FS,25},
-    {G5,50},{FS,50},{E5,50},
-    {E5,25},{D5,25},{B4,50},{B4,50},
-    {E5,50},{E5,50},{FS,50},
-    {E5,100},{FS,50},
-    {G5,50},{A5,50},{G5,50},
-    {FS,100},{FS,50},
-    {G5,50},{FS,50},{G5,50},
-    {A5,50},{G5,50},{A5,25},{A5,25},
-    {B5,25},{A5,25},{G5,50},{E5,50},
-    {E5,25},{D5,25},{B4,50},{B5,25},{A5,25},
-    {G5,50},{E5,50},{E5,50},
-    {E5,25},{D5,25},{B4,50},{A4,50},
-    {B4,50},{G5,50},{FS,50},
-    {E5,100},
-};
-const uint8_t music_spanish_len = sizeof(music_spanish) / sizeof(music_spanish[0]);
+/* The three sea shanties now play as 3-channel Tritone arrangements
+ * (see oro_play/lowlands_play/spanish_play).  The single-voice lead
+ * versions were removed; only the short level-complete fanfare still
+ * uses this frame-paced beeper player. */
 
 /* --- Trumpet fanfare: C-E-G-C' --- */
 const music_note_t music_fanfare[] = {

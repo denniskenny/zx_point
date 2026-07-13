@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include "../config/game_config.h"
+#include "../include/prng.h"
 #include "../include/treasure.h"
 #include "../include/player.h"
 #include "../include/gfx.h"
@@ -25,23 +26,18 @@
 #include "../include/map_item.h"
 #include "../include/log_item.h"
 
-/* --- Simple PRNG (separate from bubblefield's) --- */
-static uint16_t t_lfsr = 0x1337;
-static uint16_t t_weyl = 0;
+/* --- PRNG (shared algorithm, separate stream); seeded from the title --- */
+static prng_t t_rng = { 0x1337, 0 };
 
 void treasure_seed(uint16_t seed)
 {
-    t_lfsr = seed | 1;  /* must be non-zero */
-    t_weyl = seed >> 3;
+    t_rng.lfsr = seed | 1;  /* must be non-zero */
+    t_rng.weyl = seed >> 3;
 }
 
 static uint8_t treasure_rand(void)
 {
-    uint16_t bit = ((t_lfsr >> 0) ^ (t_lfsr >> 2) ^
-                    (t_lfsr >> 3) ^ (t_lfsr >> 5)) & 1;
-    t_lfsr = (t_lfsr >> 1) | (bit << 15);
-    t_weyl += 0x9E35;
-    return (uint8_t)((t_lfsr ^ t_weyl) & 0xFF);
+    return (uint8_t)prng_next(&t_rng);
 }
 
 /* --- Sprite frame lookup tables (indexed by treasure type, per scale) --- */

@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include "../config/game_config.h"
+#include "../include/prng.h"
 #include "../include/gfx.h"
 
 /* --- Bubble type --- */
@@ -25,18 +26,13 @@ static bubble_t bubbles[NUM_BUBBLES];
 static uint8_t bubble_count = NUM_BUBBLES;  /* active bubbles (can be < NUM_BUBBLES) */
 
 /* ------------------------------------------------------------------ */
-/* 16-bit LFSR PRNG                                                    */
+/* 16-bit LFSR PRNG (shared algorithm, own stream)                     */
 /* ------------------------------------------------------------------ */
-static uint16_t lfsr = 0xACE1;
-static uint16_t weyl = 0;
+static prng_t b_rng = { 0xACE1, 0 };
 
 static uint16_t rng(void)
 {
-    uint16_t bit = ((lfsr >> 0) ^ (lfsr >> 2) ^
-                    (lfsr >> 3) ^ (lfsr >> 5)) & 1;
-    lfsr = (lfsr >> 1) | (bit << 15);
-    weyl += 0x9E35;
-    return lfsr ^ weyl;
+    return prng_next(&b_rng);
 }
 
 /* ------------------------------------------------------------------ */

@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include "../config/game_config.h"
+#include "../include/prng.h"
 #include "../include/predators.h"
 #include "../include/player.h"
 #include "../include/gfx.h"
@@ -19,17 +20,12 @@
 #include "../include/ray.h"
 #include "../include/shark.h"
 
-/* --- PRNG (separate seed from bubblefield & treasure) --- */
-static uint16_t p_lfsr = 0xBEEF;
-static uint16_t p_weyl = 0;
+/* --- PRNG (shared algorithm, separate stream from bubblefield & treasure) --- */
+static prng_t p_rng = { 0xBEEF, 0 };
 
 static uint8_t pred_rand(void)
 {
-    uint16_t bit = ((p_lfsr >> 0) ^ (p_lfsr >> 2) ^
-                    (p_lfsr >> 3) ^ (p_lfsr >> 5)) & 1;
-    p_lfsr = (p_lfsr >> 1) | (bit << 15);
-    p_weyl += 0x9E35;
-    return (uint8_t)((p_lfsr ^ p_weyl) & 0xFF);
+    return (uint8_t)prng_next(&p_rng);
 }
 
 /* --- Predator data --- */
