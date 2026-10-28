@@ -7,6 +7,7 @@
 
 #include "../include/hw.h"
 #include "../include/vsync.h"
+#include "../include/gfx.h"
 #include "../include/state.h"
 #include "../include/sprites_packed.h"
 

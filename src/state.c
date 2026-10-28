@@ -474,11 +474,13 @@ static game_state_t state_level_intro_tick(void)
                lintro_boat_data((uint8_t)(lintro_px & 7)),
                (lintro_px & 7) ? LINTRO_BOAT_SW : LINTRO_BOAT_W, LINTRO_BOAT_H);
 
-    /* Attrs: clear exposed column, set boat range */
+    /* Attrs: clear exposed column, set boat range — only when px moved
+     * (attr rect is position-based; boat_y bobs don't affect it) */
     if (new_col != old_col && old_col >= 0)
         set_attr_rect((uint8_t)old_col, LINTRO_ATTR_ROW,
                       1, LINTRO_ATTR_H, LINTRO_BG_ATTR);
-    lintro_set_attr(lintro_px, LINTRO_BOAT_ATTR);
+    if (!lintro_drawn || lintro_px != lintro_prev_px)
+        lintro_set_attr(lintro_px, LINTRO_BOAT_ATTR);
 
     /* Diver: init Y on first DESCEND frame */
     if (lintro_phase == LINTRO_DESCEND && lintro_timer == 0) {

@@ -234,11 +234,78 @@ void xor_block_4(void)
     set_attr_rect(xor4_x >> 3, xor4_y >> 3, 1, 1, xor4_attr);
 }
 
-/* --- Direct-write blit with left-edge clipping (C) --- */
+/* --- Fast row-copy blit (Z80 asm), params via globals --- */
+uint8_t blit_col, blit_y, blit_w, blit_h, blit_stride;
+const uint8_t *blit_src;
+
+void blit_rows(void) __naked
+{
+    __asm
+        ;; HL = screen addr of (blit_col, blit_y)
+        ld  a, (_blit_y)
+        ld  b, a
+        and #0x07
+        or  #0x40
+        ld  h, a
+        ld  a, b
+        and #0xC0
+        rrca
+        rrca
+        rrca
+        or  h
+        ld  h, a
+        ld  a, b
+        and #0x38
+        rlca
+        rlca
+        ld  l, a
+        ld  a, (_blit_col)
+        or  l
+        ld  l, a
+        ex  de, hl          ; DE = dst
+        ld  hl, (_blit_src) ; HL = src
+_blr_row:
+        ld  a, (_blit_w)
+        ld  c, a
+        ld  b, #0
+        push de
+        push hl
+        ldir                ; blit_w bytes HL -> DE
+        pop  hl
+        pop  de             ; restore src/dst row starts
+        ;; HL += stride (next src row)
+        ld  a, (_blit_stride)
+        add a, l
+        ld  l, a
+        jr  nc, _blr_nos
+        inc h
+_blr_nos:
+        ;; DE -> next pixel row (interleaved layout)
+        inc d
+        ld  a, d
+        and #0x07
+        jr  nz, _blr_cont
+        ld  a, e
+        add a, #32
+        ld  e, a
+        jr  c, _blr_cont
+        ld  a, d
+        sub #8
+        ld  d, a
+_blr_cont:
+        ld  a, (_blit_h)
+        dec a
+        ld  (_blit_h), a
+        jr  nz, _blr_row
+        ret
+    __endasm;
+}
+
+/* --- Direct-write blit with left-edge clipping --- */
 void write_blit(int8_t col, uint8_t y, const uint8_t *data,
                 uint8_t w, uint8_t h)
 {
-    uint8_t row, skip, draw_w, start_col;
+    uint8_t skip = 0, draw_w = w, start_col;
 
     if (col < 0) {
         skip = (uint8_t)(-col);
@@ -246,23 +313,22 @@ void write_blit(int8_t col, uint8_t y, const uint8_t *data,
         draw_w = w - skip;
         start_col = 0;
     } else {
-        skip = 0;
         start_col = (uint8_t)col;
         if (start_col >= 32) return;
-        draw_w = w;
         if (start_col + draw_w > 32)
             draw_w = 32 - start_col;
     }
 
-    for (row = 0; row < h; row++) {
-        uint8_t py = y + row;
-        uint16_t off;
-        const uint8_t *src;
-        if (py >= 192) continue;
-        off = scr_off(start_col << 3, py);
-        src = data + (uint16_t)row * w + skip;
-        memcpy(SCREEN + off, src, draw_w);
-    }
+    if (y >= 192) return;
+    if (y + h > 192) h = (uint8_t)(192 - y);
+
+    blit_col = start_col;
+    blit_y = y;
+    blit_w = draw_w;
+    blit_h = h;
+    blit_stride = w;
+    blit_src = data + skip;
+    blit_rows();
 }
 
 /* --- Clear (zero) a rect of screen bytes with left-edge clipping (C) --- */
