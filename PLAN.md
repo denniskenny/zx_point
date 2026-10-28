@@ -25,14 +25,14 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
 - [x] **2.1 Depth layer attribute system**
   `src/depth.c` with 3 palettes, non-blocking animated transitions (~0.15s), `depth_get_paper()` for compositing. Minimap repaints after transition completes.
 
-- [x] **2.2 Adapt starfield for depth layers**
-  `src/starfield.c` with configurable star counts per depth (50/25/8). Stars reseeded on depth change.
+- [x] **2.2 Adapt starfield (now bubblefield) for depth layers**
+  Reworked as `src/bubblefield.c` (+ `starfield.c.asm`) with configurable particle counts per depth. Particles reseeded on depth change.
 
-- [ ] **2.3 Sea line (sinewave)**
-  Create `src/sealine.c` with an assembly-optimised sinewave renderer. The sea line appears when the player is in a Depth 1 cube. It animates (phase shifts each frame) and scrolls off-screen as the player descends. Stars and rays are culled above this line. The line position is a single y-coordinate for culling purposes. Flotsam treasure renders on this line.
+- [x] **2.3 Sea line (sinewave)**
+  `src/sealine.c` with a 32-entry sine table renderer (±6px). Appears in Depth 1, phase-animates each frame, scrolls off as the player descends. Provides `sealine_get_cull_y()` / `sealine_get_clamp_y()` for culling bubbles above the line.
 
-- [ ] **2.4 Sea floor (flat line)**
-  Add sea floor rendering to `src/sealine.c` (or a new file). A flat horizontal line visible when the player is in a Depth 3 cube. Scrolls up as the player descends toward the bottom. Archaeological treasure renders just above this line. The Great Old One is clipped to the sea floor scanline.
+- [x] **2.4 Sea floor (flat line)**
+  Sea floor rendering in `src/sealine.c`. Flat solid surface visible in Depth 3, XOR row-fill that rises/drops as the player descends/ascends. `seafloor_get_y()` used for clipping.
 
 - [x] **2.5 Floating bus flicker avoidance**
   `src/vsync.c` with floating bus detection and HALT fallback. 48K/128K safe.
@@ -97,18 +97,18 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
 - [x] **5.3 Collision detection & damage**
   Proximity-based: PRED_PROXIMITY_FRAMES (50 frames = 1 second) of continuous contact = 1 HP damage. Low-pitched Taps jingle on damage. Invulnerability for 60 frames with sprite flash.
 
-- [ ] **5.4 Great Old One — AI, rendering & death sequence**
-  GOOs exist only at Depth 3. Move randomly, very slow. Grid-based collision = instant death. Appear on minimap as green+flash dots. Sonar sound not yet implemented. GOO sprite (20x20 char) not yet created. Death animation sequence not yet implemented.
+- [x] **5.4 Great Old One — AI, rendering & death sequence**
+  GOOs at Depth 3, slow random movement, grid collision = instant death (`predators_check_collision()` returns 255). Minimap green+flash dots. GOO sonar pitch implemented (`SONAR_GOO`). `STATE_GOO_DEATH` in `src/state.c` plays a 4-frame anglerfish reveal + swallow (ZX0-decompressed `goo_data.h` frames, mirrored bit-reverse blit), with descending beeper tones.
 
 ---
 
 ## Phase 6: Sound
 
-- [ ] **6.1 Integrate Shiru's Tritone engine**
-  Not yet started. Currently using custom beeper routines in `src/sound.c`.
+- [x] **6.1 Integrate Tritone engine**
+  Shared 3-channel Tritone engine (`assets/music/tritone_engine.asm`, PUBLIC `TRI_PLAY`). Build pipeline: transcription `.txt` -> `txt2tritone.py` -> Tritone `.asm` -> `gen_tritone_module.py` -> per-tune linkable module. Runs on the 48K beeper.
 
-- [ ] **6.2 Sonar ping system**
-  Basic sonar ping implemented (multi-phase echo across frames). Distance-based proximity ping not yet implemented. GOO sonar not yet implemented.
+- [x] **6.2 Sonar ping system**
+  Distance-based proximity ping in `src/sound.c` with a quadratic interval curve (`sonar_intervals[]`) and per-target pitch (`sonar_pitch[]`: treasure/predator/GOO). `sonar_update()` picks the closest same-depth object each frame; 4-phase echo per ping.
 
 - [x] **6.3 Sound effects**
   `src/sound.c` with:
@@ -118,21 +118,21 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
   - `sfx_play_note(n, delay)` — variable-pitch beeper note (inline Z80 asm)
   - Sonar ping with 4-phase echo (beep_ping_start/beep_tick)
 
-- [ ] **6.4 Sea shanties — 48K beeper versions**
-  Not yet started. ABC notation defined in design.md.
+- [x] **6.4 Sea shanties — 48K beeper versions**
+  Three 3-channel Tritone arrangements: `oro_play()` (title), `lowlands_play()` (level complete), `spanish_play()` (game over). Played blocking on the beeper. A short `music_fanfare` uses the single-voice player in `src/music.c`.
 
 ---
 
 ## Phase 7: Game Screens
 
-- [x] **7.1 Title screen** (basic)
-  Text-only title screen with game name, copyright, "Press any key". Seeds PRNG from frame counter on keypress. Logo, sea line, boat graphics not yet implemented.
+- [x] **7.1 Title screen**
+  ZX0 title logo banner decompressed to the top of the screen (`title_logo_zx0` + attrs), copyright, "Press any key". Plays the `oro_play()` shanty; keypress timing (`tritone_ticks`) seeds the PRNG.
 
-- [x] **7.2 Game intro sequence** (basic)
-  Level briefing screen showing level number, name, treasure/relic counts, predator counts (rays/sharks/GOOs). Spawns treasures and predators. Boat/crane animation not yet implemented.
+- [x] **7.2 Game intro sequence**
+  `STATE_LEVEL_INTRO`: animated boat scroll-in over an XOR sinewave sea line with bobbing, then diver descent. Followed by the level briefing (level name, treasure/relic counts, predator counts). Spawns treasures and predators.
 
-- [x] **7.3 Level summary screen** (basic)
-  Shows level complete or game over, treasure stats, total collected. No boat/sea line/shanty yet. Log/lore entries not yet implemented.
+- [x] **7.3 Level summary screen**
+  Shows level complete or game over, treasure stats, total collected. Plays `lowlands_play()` (complete) or `spanish_play()` (game over). Log/lore entries not yet implemented.
 
 - [x] **7.4 Game over sequence**
   8-step colour cycle (bright white → black) over 48 frames with continuous beeper tone. Transitions to summary then title.
@@ -144,30 +144,35 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
 
 ## Phase 8: Large Graphics & Compression
 
-- [ ] **8.1 ZX0 compression pipeline**
-  Integrate Einar Saukas' ZX0 compressor into the build system. Extend `tools/zxp2header.py` (or create a new `tools/zxp2zx0.py`) to output raw bytes, then pipe through `zx0` binary to produce compressed data, then wrap in a C array. Update Makefile with the pipeline: `.zxp → raw → ZX0 → .h`. Add a runtime `dzx0_standard` decompression routine (from ZX0 repo) in assembly.
+- [x] **8.1 ZX0 compression pipeline**
+  ZX0 integrated. `tools/zxp2zx0.py`, `tools/zx0_to_header.py`, `tools/scr_crop_zx0.py` produce compressed C headers; Makefile pipeline (`.zxp/.scr -> raw -> ZX0 -> .h`) with `ZX0 ?= /tmp/ZX0/src/zx0`. Runtime `dzx0_decompress()` in `src/dzx0.c`. Resident sprites packed into one ZX0 blob via `pack_sprites.py`.
 
-- [ ] **8.2 Boat graphic**
-  Create `assets/boat.zxp` — a ~100x100 pixel boat with crane, side profile. Convert via ZX0 pipeline. Write a `draw_boat()` function that decompresses to a screen-aligned buffer and blits to the correct position on the sea line. Used on title screen, intro, level completion, and summary.
+- [x] **8.2 Boat graphic**
+  `assets/boat.zxp` built and packed into the resident sprite blob (`include/boat.h`).
 
-- [ ] **8.3 Great Old One graphic**
-  Create `assets/goo.zxp` — 20x20 character (160x160 pixel) angler fish face with 3 frames stacked vertically. Convert via ZX0 pipeline. Decompress frame-by-frame during the GOO encounter. Direct screen writes (no SP1).
+- [x] **8.3 Great Old One graphic**
+  Anglerfish frames generated from `assets/angler_5.scr` via `scr_dither_reveal.py` -> 4 reveal frames -> `scr_crop_zx0.py` (cropped + mirrored + ZX0) into `include/goo_data.h`. Decompressed frame-by-frame in `STATE_GOO_DEATH`.
 
-- [ ] **8.4 Title logo**
-  Create `assets/logo.zxp` — 256x100 pixel game title logo. Convert via ZX0 pipeline. Decompress to top of screen on title screen.
+- [x] **8.4 Title logo**
+  `assets/logo.zxp` -> `zxp2zx0.py` -> `include/title_logo.h`. Decompressed to the top of the title screen.
 
 ---
 
-## Phase 9: 128K Enhancements
+## Phase 9: 128K Enhancements (mostly superseded)
 
-- [ ] **9.1 128K memory banking**
-  Extend `src/hw_detect.c` with bank-switching routines. Use extra RAM banks to store compressed music data and large graphics that don't fit in 48K. Define a memory map for which banks hold what.
+> **Note:** All music/SFX now run as 3-channel **Tritone on the 48K beeper**, which fits
+> entirely in 48K. The original AY-based plan below is therefore superseded and optional.
+> `is_128k` detection exists (`src/hw_detect.c`) and is used by `src/vsync.c` for the
+> +2A/+3 floating-bus port. Everything else here is not required to ship.
 
-- [ ] **9.2 AY sea shanties**
-  Author the 3 sea shanties as 3-channel AY arrangements in Vortex Tracker II, export as .pt3 files. Integrate a Z88DK .pt3 player routine. When `is_128k` is true, play AY music instead of Tritone beeper music. Mute beeper melodies but keep beeper SFX (treasure, damage).
+- [ ] **9.1 128K memory banking** *(not needed — all assets fit in 48K after ZX0)*
+  Detection done; no bank-switching for assets. Only revisit if content outgrows 48K.
 
-- [ ] **9.3 AY sonar ping**
-  Create an AY version of the sonar ping with envelope shaping (muffled high-end, reverb effect). Use instead of the beeper sonar when `is_128k` is true.
+- [ ] ~~**9.2 AY sea shanties**~~ *(superseded by 48K Tritone shanties, task 6.4)*
+  Optional future enhancement: richer AY arrangements when `is_128k`.
+
+- [ ] ~~**9.3 AY sonar ping**~~ *(superseded by beeper sonar, task 6.2)*
+  Optional future enhancement: envelope-shaped AY sonar when `is_128k`.
 
 ---
 

@@ -15,6 +15,10 @@ FUSE_RUN = $(FUSE) --machine 48 downship.tap &
 endif
 
 # --- Config ---
+# Build the game by default (rule order below would otherwise pick the first
+# asset rule as the default goal).
+.DEFAULT_GOAL := all
+
 CONFIG_MK ?= config/basic_config.mk
 include $(CONFIG_MK)
 
@@ -24,8 +28,15 @@ USER_CFLAGS ?=
 LDFLAGS=-lm -create-app
 
 # --- Asset pipeline ---
+# ZX0 compressor MUST be v2 format to match src/dzx0.c. Do NOT use z88dk-zx0:
+# it is ZX0 v1.5 (classic format) and produces data the v2 decompressor reads
+# as garbage, corrupting RAM at boot. Build v2 from
+# https://github.com/einar-saukas/ZX0 and override with `make ZX0=/path/to/zx0`.
 ZXP2HEADER = $(PYTHON) tools/zxp2header.py
 ZX0 ?= /tmp/ZX0/src/zx0
+ifeq ($(wildcard $(ZX0)),)
+$(warning ZX0 v2 compressor not found at $(ZX0); asset rebuilds will fail)
+endif
 SCR_CROP_ZX0 = $(PYTHON) tools/scr_crop_zx0.py
 
 # Row-major sprites (direct write — diver stays row-major for legacy compat)

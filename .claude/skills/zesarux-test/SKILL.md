@@ -8,25 +8,55 @@ effort: high
 
 # ZEsarUX Testing, Profiling & Screen Inspection
 
-You have access to ZEsarUX 13.0 with ZRCP (remote control protocol) for automated testing of ZX Spectrum programs. Use these capabilities to test, profile, and debug any program loaded as a .tap file.
+You have access to ZEsarUX (built from source) with ZRCP (remote control protocol) for automated testing of ZX Spectrum programs. Use these capabilities to test, profile, and debug any program loaded as a .tap file.
 
 ## Environment
 
-- **ZEsarUX binary**: `/usr/local/bin/zesarux` (built from source at `/Users/Kennyd/projects/zesarux/`)
+- **ZEsarUX binary**: `/usr/local/bin/zesarux` (symlink to `~/projects/zesarux/src/zesarux`, built from source at `/Users/Kennyd/projects/zesarux/`)
 - **48K ROM**: `~/projects/zesarux/src/48.rom`
 - **ZRCP port**: TCP 10000 (localhost)
 - **Profiler script**: `tools/profile_zrcp.py` (project-specific, uses map file symbols)
+
+## 0. Check the ZEsarUX Version Before Use
+
+**Always check the installed version against upstream before testing.** Old builds have emulation bugs that look like game bugs. For example, before upstream commit `1d98a713` ("Fix Spectrum floating bus reads on 48K and 128K"), the floating-bus read never matched the vsync marker, so `vsync_wait()` hung forever on the title screen.
+
+```bash
+cd ~/projects/zesarux/src
+zesarux --version 2>&1 | tail -1          # installed build (name + date)
+git fetch origin
+git log -1 --format='%h %ci %s'           # commit the binary was built from
+git log --oneline HEAD..origin/main | wc -l   # commits behind upstream
+```
+
+If it is behind, update and rebuild **with `./configure`** (no extra options) followed by `make`:
+
+```bash
+cd ~/projects/zesarux/src
+git pull --ff-only
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk ./configure
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk make -j8
+zesarux --version 2>&1 | tail -1          # confirm the new build is picked up
+```
+
+- `/usr/local/bin/zesarux` is a symlink into `src/`, so `make` alone installs the new build. No `make install` is needed.
+- `SDKROOT` is needed because the default macOS 27.0 SDK fails to link (`ld: tapi error: malformed file`). If `./configure` stops at "Checking size of char ... Error", that's the cause.
+- The build takes a few minutes. Run it with a long timeout or in the background.
 
 ## 1. Launching ZEsarUX Headless
 
 Always launch with `--vo null --ao null` for headless operation and `--enable-remoteprotocol` for ZRCP access. Use **absolute paths** for the .tap file — relative paths fail in headless mode:
 
 ```bash
-zesarux --vo null --ao null --enable-remoteprotocol --machine 48k \
-  --noconfigfile --quickexit \
+zesarux --noconfigfile --vo null --ao null --enable-remoteprotocol --machine 48k \
+  --joystickemulated Kempston \
   --romfile ~/projects/zesarux/src/48.rom \
   /Users/Kennyd/projects/zx_point/downship.tap &
 ```
+
+**`--noconfigfile` MUST be the first argument.** ZEsarUX ignores it anywhere else. It then loads `~/.zesaruxrc` and, because that file sets `--saveconf-on-exit`, writes your headless settings back into it on exit. That includes `--vo null` and any breakpoints you set. A saved breakpoint that keeps firing makes ZEsarUX release the joystick, so Kempston presses get dropped.
+
+Pass `--joystickemulated Kempston`. Without it, the joystick byte in `set-ui-io-ports` never reaches port `0x1F`.
 
 Launch as a background process with `&`. Wait **6 seconds** before connecting to ZRCP — the emulator needs time to start up. Always clean up with `pkill -f zesarux` when done.
 
