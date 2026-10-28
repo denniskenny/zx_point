@@ -270,6 +270,38 @@ static uint8_t lintro_diver_frame;  /* frame index currently XOR'd */
 static uint8_t lintro_saved_vsync; /* saved vsync_mode for restore */
 static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
 
+/* Precached shifted copies of the boat: (w+1) bytes/row, carry column at
+ * right. Scroll step is 2px and px stays even, so only shifts 2/4/6 occur
+ * (shift 0 uses boat_bitmap directly). Each variant is built once. */
+#define LINTRO_BOAT_SW  (LINTRO_BOAT_W + 1)
+static uint8_t lintro_boat_sx[3][LINTRO_BOAT_SW * LINTRO_BOAT_H];
+static uint8_t lintro_boat_have = 0;   /* bitmask of built variants */
+
+static const uint8_t *lintro_boat_data(uint8_t shift)
+{
+    uint8_t si, row, c;
+    uint8_t *dst;
+
+    if (!shift) return boat_bitmap;
+
+    si = (shift >> 1) - 1;             /* shifts 2,4,6 -> slots 0,1,2 */
+    if (lintro_boat_have & (1 << si)) return lintro_boat_sx[si];
+
+    dst = lintro_boat_sx[si];
+    for (row = 0; row < LINTRO_BOAT_H; row++) {
+        const uint8_t *src = boat_bitmap + (uint16_t)row * LINTRO_BOAT_W;
+        uint8_t carry = 0;
+        for (c = 0; c < LINTRO_BOAT_SW; c++) {
+            uint8_t b = (c < LINTRO_BOAT_W) ? src[c] : 0;
+            dst[c] = (b >> shift) | carry;
+            carry = (uint8_t)(b << (8 - shift));
+        }
+        dst += LINTRO_BOAT_SW;
+    }
+    lintro_boat_have |= (uint8_t)(1 << si);
+    return lintro_boat_sx[si];
+}
+
 /* Set clipped attribute rect covering the full bob range */
 static void lintro_set_attr(int16_t px, uint8_t attr)
 {
@@ -313,18 +345,19 @@ static void lintro_sealine_tick(void)
             continue;
         }
 
+        idx = (col + lintro_sea_phase) & 31;
+        sy = (int16_t)LINTRO_SEA_Y + lintro_sine[idx];
+        if (sy < 0 || sy >= 192) sy = 255;   /* offscreen sentinel */
+
+        if (lintro_sl_prev[col] == (uint8_t)sy) continue;  /* unchanged */
+
         if (lintro_sl_prev[col] < 192)
             SCREEN[scr_off(col << 3, lintro_sl_prev[col])] ^= 0xFF;
 
-        idx = (col + lintro_sea_phase) & 31;
-        sy = (int16_t)LINTRO_SEA_Y + lintro_sine[idx];
-
-        if (sy >= 0 && sy < 192) {
+        if (sy != 255)
             SCREEN[scr_off(col << 3, (uint8_t)sy)] ^= 0xFF;
-            lintro_sl_prev[col] = (uint8_t)sy;
-        } else {
-            lintro_sl_prev[col] = 255;
-        }
+
+        lintro_sl_prev[col] = (uint8_t)sy;
     }
 }
 
@@ -340,6 +373,9 @@ static game_state_t state_level_intro_init(void)
     screen_clear(LINTRO_BG_ATTR, 1);
 
     lintro_px = -(int16_t)(LINTRO_BOAT_W * 8);
+    lintro_boat_data(2);                /* prebuild shifted variants: ~3 frames */
+    lintro_boat_data(4);
+    lintro_boat_data(6);
     lintro_phase = LINTRO_SCROLL;
     lintro_timer = 0;
     lintro_sea_phase = 0;
@@ -433,9 +469,10 @@ static game_state_t state_level_intro_tick(void)
     /* Sea line: XOR erase old + draw new */
     lintro_sealine_tick();
 
-    /* Draw boat */
-    write_blit_px(lintro_px, boat_y, boat_bitmap,
-                  LINTRO_BOAT_W, LINTRO_BOAT_H);
+    /* Draw boat (precached shift -> byte blit) */
+    write_blit((int8_t)(lintro_px >> 3), boat_y,
+               lintro_boat_data((uint8_t)(lintro_px & 7)),
+               (lintro_px & 7) ? LINTRO_BOAT_SW : LINTRO_BOAT_W, LINTRO_BOAT_H);
 
     /* Attrs: clear exposed column, set boat range */
     if (new_col != old_col && old_col >= 0)

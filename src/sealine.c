@@ -74,18 +74,19 @@ void sealine_update(uint8_t base_y)
 
     /* Erase previous frame, draw new sinewave */
     for (col = 0; col < 32; col++) {
+        idx = (col + sl_phase) & (SINE_LEN - 1);
+        py = (int16_t)base_y + sine_tab[idx];
+        if (py < 0 || py >= 192) py = 255;   /* offscreen sentinel */
+
+        if (sl_prev_y[col] == (uint8_t)py) continue;  /* unchanged */
+
         if (sl_prev_y[col] < 192)
             SCREEN[scr_off(col << 3, sl_prev_y[col])] ^= 0xFF;
 
-        idx = (col + sl_phase) & (SINE_LEN - 1);
-        py = (int16_t)base_y + sine_tab[idx];
-
-        if (py >= 0 && py < 192) {
+        if (py != 255)
             SCREEN[scr_off(col << 3, (uint8_t)py)] ^= 0xFF;
-            sl_prev_y[col] = (uint8_t)py;
-        } else {
-            sl_prev_y[col] = 255;
-        }
+
+        sl_prev_y[col] = (uint8_t)py;
     }
 
     sl_drawn = 1;

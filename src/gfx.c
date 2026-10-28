@@ -4,6 +4,7 @@
  * Extracted from bubblefield.c.
  */
 
+#include <string.h>
 #include "../config/game_config.h"
 #include "../include/gfx.h"
 
@@ -237,7 +238,7 @@ void xor_block_4(void)
 void write_blit(int8_t col, uint8_t y, const uint8_t *data,
                 uint8_t w, uint8_t h)
 {
-    uint8_t row, c, skip, draw_w, start_col;
+    uint8_t row, skip, draw_w, start_col;
 
     if (col < 0) {
         skip = (uint8_t)(-col);
@@ -260,15 +261,14 @@ void write_blit(int8_t col, uint8_t y, const uint8_t *data,
         if (py >= 192) continue;
         off = scr_off(start_col << 3, py);
         src = data + (uint16_t)row * w + skip;
-        for (c = 0; c < draw_w; c++)
-            SCREEN[off + c] = src[c];
+        memcpy(SCREEN + off, src, draw_w);
     }
 }
 
 /* --- Clear (zero) a rect of screen bytes with left-edge clipping (C) --- */
 void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h)
 {
-    uint8_t row, c, draw_w, start_col;
+    uint8_t row, draw_w, start_col;
 
     if (col < 0) {
         uint8_t skip = (uint8_t)(-col);
@@ -288,8 +288,7 @@ void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h)
         uint16_t off;
         if (py >= 192) continue;
         off = scr_off(start_col << 3, py);
-        for (c = 0; c < draw_w; c++)
-            SCREEN[off + c] = 0;
+        memset(SCREEN + off, 0, draw_w);
     }
 }
 
@@ -312,8 +311,10 @@ void write_blit_px(int16_t px, uint8_t y, const uint8_t *data,
         uint8_t py = y + row;
         uint8_t carry = 0;
         const uint8_t *src;
+        uint16_t off0;
         if (py >= 192) continue;
         src = data + (uint16_t)row * w;
+        off0 = scr_off(0, py);
         for (c = 0; c <= w; c++) {
             int8_t sc = base_col + (int8_t)c;
             uint8_t src_byte = (c < w) ? src[c] : 0;
@@ -321,7 +322,7 @@ void write_blit_px(int16_t px, uint8_t y, const uint8_t *data,
             carry = (uint8_t)(src_byte << (8 - shift));
             if (sc < 0) continue;
             if ((uint8_t)sc >= 32) break;
-            SCREEN[scr_off((uint8_t)sc << 3, py)] = val;
+            SCREEN[off0 + (uint8_t)sc] = val;
         }
     }
 }
