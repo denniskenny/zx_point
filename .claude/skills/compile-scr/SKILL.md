@@ -12,7 +12,7 @@ Convert a ZX Spectrum .scr screen file into a ZX0-compressed C header array for 
 
 ## Prerequisites
 
-- ZX0 compressor at `/tmp/ZX0/src/zx0`
+- ZX0 v2 compressor at `tools/zx0/zx0` (vendored; `make tools/zx0/zx0` builds it). Never use `z88dk-zx0` (v1.5 format, crashes the game)
 - Input: a 6912-byte `.scr` file (6144 bytes pixel data + 768 bytes attributes)
 
 ## Process
@@ -20,7 +20,7 @@ Convert a ZX Spectrum .scr screen file into a ZX0-compressed C header array for 
 1. **Compress the full .scr with ZX0** (all 6912 bytes — pixels + attributes are both needed):
    ```bash
    rm -f /tmp/TEMP.zx0
-   /tmp/ZX0/src/zx0 INPUT.scr /tmp/TEMP.zx0
+   tools/zx0/zx0 INPUT.scr /tmp/TEMP.zx0
    ```
 
 3. **Generate C header** with this Python one-liner:

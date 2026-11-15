@@ -30,13 +30,11 @@ LDFLAGS=-lm -create-app
 # --- Asset pipeline ---
 # ZX0 compressor MUST be v2 format to match src/dzx0.c. Do NOT use z88dk-zx0:
 # it is ZX0 v1.5 (classic format) and produces data the v2 decompressor reads
-# as garbage, corrupting RAM at boot. Build v2 from
-# https://github.com/einar-saukas/ZX0 and override with `make ZX0=/path/to/zx0`.
+# as garbage, corrupting RAM at boot. The v2 source is vendored in tools/zx0/
+# and built on first use. Override with `make ZX0=/path/to/zx0`.
 ZXP2HEADER = $(PYTHON) tools/zxp2header.py
-ZX0 ?= /tmp/ZX0/src/zx0
-ifeq ($(wildcard $(ZX0)),)
-$(warning ZX0 v2 compressor not found at $(ZX0); asset rebuilds will fail)
-endif
+ZX0_SRCS = tools/zx0/zx0.c tools/zx0/optimize.c tools/zx0/compress.c tools/zx0/memory.c
+ZX0 ?= tools/zx0/zx0
 SCR_CROP_ZX0 = $(PYTHON) tools/scr_crop_zx0.py
 
 # Row-major sprites (direct write — diver stays row-major for legacy compat)
@@ -79,20 +77,30 @@ include/boat.h: assets/ship3.zxp tools/zxp2header.py
 include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 2 --name minimap_grid
 
+# Build the vendored ZX0 compressor. If the default macOS SDK fails to link
+# (seen with SDK 27.0: "ld: tapi error"), retry against each installed
+# Command Line Tools SDK, newest first.
+tools/zx0/zx0: $(ZX0_SRCS) tools/zx0/zx0.h
+	$(HOSTCC) -O2 -o $@ $(ZX0_SRCS) 2>/dev/null || { \
+	  for sdk in $$(ls -dr /Library/Developer/CommandLineTools/SDKs/MacOSX[0-9]*.sdk 2>/dev/null); do \
+	    $(HOSTCC) -O2 -isysroot $$sdk -o $@ $(ZX0_SRCS) 2>/dev/null && echo "built $@ with $$sdk" && exit 0; \
+	  done; \
+	  $(HOSTCC) -O2 -o $@ $(ZX0_SRCS); }
+
 # GOO anglerfish: dither source → 4 reveal frames → crop + ZX0 compress
 GOO_SRC = assets/angler_5.scr
-include/goo_data.h: $(GOO_SRC) tools/scr_dither_reveal.py tools/scr_crop_zx0.py
+include/goo_data.h: $(GOO_SRC) tools/scr_dither_reveal.py tools/scr_crop_zx0.py | $(ZX0)
 	$(PYTHON) tools/scr_dither_reveal.py $(GOO_SRC) assets/goo
 	$(SCR_CROP_ZX0) --mirror $@ $(ZX0) \
 		goo_frame1:assets/goo_1.scr goo_frame2:assets/goo_3.scr \
 		goo_frame3:assets/goo_5.scr goo_frame4:assets/goo_6.scr
 
 # Title logo banner (256x112 .zxp → screen-layout pixels → ZX0 → C header)
-include/title_logo.h: assets/logo.zxp tools/zxp2zx0.py
+include/title_logo.h: assets/logo.zxp tools/zxp2zx0.py | $(ZX0)
 	$(PYTHON) tools/zxp2zx0.py $< $@ --name title_logo --zx0 $(ZX0)
 
 # Vignette (full 6912-byte .scr → ZX0 compressed C header)
-include/vignette.h: assets/vignette.scr tools/zx0_to_header.py
+include/vignette.h: assets/vignette.scr tools/zx0_to_header.py | $(ZX0)
 	rm -f /tmp/vignette.zx0
 	$(ZX0) $< /tmp/vignette.zx0
 	$(PYTHON) tools/zx0_to_header.py $@ vignette_zx0:/tmp/vignette.zx0
@@ -103,7 +111,7 @@ SPRITE_HEADERS = include/diver.h include/ray.h include/shark.h \
     include/statue.h include/tablet.h include/altar.h include/firstaid.h \
     include/oxygen_tank.h include/map_item.h include/log_item.h include/boat.h \
     include/minimap_grid.h
-include/sprites_packed.h: $(SPRITE_HEADERS) tools/pack_sprites.py
+include/sprites_packed.h: $(SPRITE_HEADERS) tools/pack_sprites.py | $(ZX0)
 	$(PYTHON) tools/pack_sprites.py --arena 0x6A00 --zx0 $(ZX0)
 include/sprites_blob.h: include/sprites_packed.h
 
