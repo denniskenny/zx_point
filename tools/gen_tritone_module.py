@@ -48,6 +48,7 @@ def build_engine(src_text, src_path):
         "                SECTION code_user",
         "                PUBLIC  TRI_PLAY",
         "                PUBLIC  _tritone_ticks",
+        "                EXTERN  _has_kempston",
         "",
     ]
     def norm(x):
@@ -57,6 +58,24 @@ def build_engine(src_text, src_path):
     while i < len(engine_src):
         l = engine_src[i]
         s = l.strip()
+
+        # --- Kempston detection: the stock engine does ONE read of port $1F
+        #     at start-up. Without an interface that port floats (returns the
+        #     ULA's current screen byte), so a 0 read falsely enables the
+        #     joystick check and floating-bus junk then stops the tune at once.
+        #     Use the game's boot-time hw_detect result instead. ---
+        if norm(l) == "IN A,($1F)" and i + 2 < len(engine_src) \
+                and norm(engine_src[i + 2]) == "LD A,OP_NOP":
+            assert norm(engine_src[i + 1]) == "AND $1F"
+            assert "NZ,SET_KEMPSTON" in engine_src[i + 3].replace(" ", "")
+            out += [
+                "                LD    A,(_has_kempston)     ; detected once at boot",
+                "                OR    A",
+                "                LD    A,OP_NOP",
+                "                JR    Z,SET_KEMPSTON",
+            ]
+            i += 4
+            continue
 
         if s.upper().startswith("ORG"):                       # linker places it
             i += 1

@@ -17,7 +17,7 @@ void treasure_seed(uint16_t seed);
 
 /* Place treasures for a given level number.
  * At least one archaeological treasure; extras are random. */
-void treasure_spawn(uint8_t level_num);
+void treasure_spawn(uint8_t level_num, uint8_t count);
 
 /* Check all uncollected treasures against player position.
  * Marks collected, applies pickup effects (firstaid, oxygen). */

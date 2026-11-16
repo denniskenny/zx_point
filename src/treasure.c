@@ -67,10 +67,10 @@ static entity_pool_t trs_pool;
 treasure_t treasures[MAX_TREASURES];
 level_t level;
 
-void treasure_spawn(uint8_t level_num)
+/* count comes from LEVEL_TREASURES in config/game_config.h */
+void treasure_spawn(uint8_t level_num, uint8_t count)
 {
     uint8_t i;
-    uint8_t count = level_num;
 
     if (count > MAX_TREASURES) count = MAX_TREASURES;
 

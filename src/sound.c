@@ -33,11 +33,13 @@ static const uint8_t ping_gaps[]   = {  2,  4,  5, 0 };
 static const uint8_t sonar_pitch[] = { 15, 25, 40 };
 
 /* --- Sonar distance-to-interval mapping (quadratic curve) ---
- * Index 0 = 1 cube away, index 9 = 10 cubes away.
- * interval(d) = NEAR + (FAR-NEAR) * ((d-1)/(RANGE-1))^2        */
+ * Index 0 = 1 cube away, index SONAR_RANGE_FAR-1 = furthest.
+ * interval(d) ~= 12 + 88 * ((d-1)/(RANGE-1))^2 frames (0.25s .. 2s) */
 static const uint8_t sonar_intervals[] = {
     12, 13, 16, 22, 29, 39, 51, 65, 81, 100
 };
+typedef char sonar_table_len_check[
+    (sizeof(sonar_intervals) == SONAR_RANGE_FAR) ? 1 : -1];
 static uint8_t sonar_ctr;
 static uint8_t sonar_active;
 

@@ -172,7 +172,7 @@ assets/music/oro_linkable.asm: assets/music/oro\ se\ do\ bheatha.asm tools/gen_t
 # --- Top-level targets ---
 all: downship.tap
 
-.PHONY: all run clean assets test-legacy test
+.PHONY: all run clean assets test-legacy test test-preds
 
 assets: $(GENERATED_HEADERS)
 
@@ -182,6 +182,14 @@ run: downship.tap
 # --- Compile, link & package (multi-file) ---
 downship.tap: $(SRCS) $(HEADERS) $(MUSIC_LINKABLE)
 	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship $(SRCS) $(MUSIC_LINKABLE) $(LDFLAGS)
+
+# --- Predator stress-test build: many rays/sharks on every level ---
+# Writes downship_test.tap (normal build untouched). Tune counts with e.g.
+#   make test-preds TEST_PRED_FLAGS="-DTEST_RAYS=20 -DTEST_SHARKS=10"
+TEST_PRED_FLAGS ?=
+test-preds: downship_test.tap
+downship_test.tap: $(SRCS) $(HEADERS) $(MUSIC_LINKABLE)
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -DTEST_MANY_PREDS $(TEST_PRED_FLAGS) -o downship_test $(SRCS) $(MUSIC_LINKABLE) $(LDFLAGS)
 
 # --- Automated tests (run on ZEsarUX headless) ---
 TEST_CFLAGS=+zx -vn -SO3 -zorg=32768 -startup=31 --opt-code-speed -compiler=sdcc -mz80 \
@@ -200,6 +208,7 @@ test-legacy: starfield.c include/diver.h
 # --- Clean ---
 clean:
 	rm -f downship downship.tap downship_CODE.bin downship_data_user.bin downship_code.tap *.o *.map
+	rm -f downship_test downship_test.tap downship_test_CODE.bin downship_test_data_user.bin downship_test_code.tap
 	rm -f $(GENERATED_HEADERS)
 	rm -f $(MUSIC_LINKABLE) assets/music/*.o assets/music/lowlands.asm $(MUSIC_ENGINE)
 	rm -f tests/test_orientation tests/test_orientation.tap tests/test_orientation_CODE.bin tests/test_orientation_data_user.bin tests/test_orientation_code.tap

@@ -4,6 +4,7 @@
                 SECTION code_user
                 PUBLIC  TRI_PLAY
                 PUBLIC  _tritone_ticks
+                EXTERN  _has_kempston
 
 ; *****************************************************************************
 ; * Tritone v2 Player (with equal channel volumes)
@@ -40,10 +41,10 @@ TRI_PLAY:
                 LD    (DUTY1 + 1),A
                 LD    (DUTY2 + 1),A
                 LD    (SKIP_DRUM),A
-                IN    A,($1F)
-                AND   $1F
+                LD    A,(_has_kempston)     ; detected once at boot
+                OR    A
                 LD    A,OP_NOP
-                JR    NZ,SET_KEMPSTON
+                JR    Z,SET_KEMPSTON
                 LD    A,OP_ORC
 SET_KEMPSTON:   LD    (CHECK_KEMPSTON),A
                 JP    NEXT_POS

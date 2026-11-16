@@ -138,7 +138,7 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
   8-step colour cycle (bright white → black) over 48 frames with continuous beeper tone. Transitions to summary then title.
 
 - [x] **7.5 Level progression**
-  Level names for 1-5, "Descent into Madness" for 6+. Treasure count = level number. Predators: rays = level * RAY_CONSTANT, sharks from level 3, GOOs from level 5. Surfacing (gy=0, at_bound_y=1) always ends the level: success if all relics collected, game over if not.
+  Level names for 1-5, "Descent into Madness" for 6+. Treasure and predator counts per level come from the `LEVEL_*` tables in `config/game_config.h`. Surfacing (gy=0, at_bound_y=1) always ends the level: success if all relics collected, game over if not.
 
 ---
 

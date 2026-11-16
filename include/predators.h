@@ -29,7 +29,7 @@ extern uint8_t pred_goo_count;
 void predators_init(void);
 
 /* Place predators for a given level number */
-void predators_spawn(uint8_t level_num);
+void predators_spawn(uint8_t n_rays, uint8_t n_sharks, uint8_t n_goos);
 
 /* Move all predators: grid traversal + screen bounce */
 void predators_update(void);

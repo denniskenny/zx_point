@@ -167,13 +167,39 @@ static game_state_t state_title_tick(void)
 /* ------------------------------------------------------------------ */
 /* STATE_INTRO — level briefing screen                                 */
 /* ------------------------------------------------------------------ */
+/* Per-level contents from config/game_config.h (see LEVEL_* tables) */
+static const uint8_t lvl_treasures[] = LEVEL_TREASURES;
+static const uint8_t lvl_rays[]      = LEVEL_RAYS;
+static const uint8_t lvl_sharks[]    = LEVEL_SHARKS;
+static const uint8_t lvl_goos[]      = LEVEL_GOOS;
+typedef char lvl_table_len_check[
+    (sizeof(lvl_treasures) == LEVEL_TABLE_LEN && sizeof(lvl_rays) == LEVEL_TABLE_LEN &&
+     sizeof(lvl_sharks) == LEVEL_TABLE_LEN && sizeof(lvl_goos) == LEVEL_TABLE_LEN) ? 1 : -1];
+
+/* Count for `level` (1-based): table entry, then +extra per level beyond */
+static uint8_t level_count(const uint8_t *table, uint8_t extra, uint8_t lvl)
+{
+    uint16_t n;
+    if (lvl <= LEVEL_TABLE_LEN) return table[lvl - 1];
+    n = table[LEVEL_TABLE_LEN - 1] + (uint16_t)extra * (lvl - LEVEL_TABLE_LEN);
+    return n > 255 ? 255 : (uint8_t)n;
+}
+
 static game_state_t state_intro_init(void)
 {
     const char *name;
+    uint8_t n_rays   = level_count(lvl_rays,   LEVEL_EXTRA_RAYS,   current_level);
+    uint8_t n_sharks = level_count(lvl_sharks, LEVEL_EXTRA_SHARKS, current_level);
+#ifdef TEST_MANY_PREDS
+    n_rays   = TEST_RAYS;
+    n_sharks = TEST_SHARKS;
+#endif
 
     /* Spawn treasures and predators so counts are available */
-    treasure_spawn(current_level);
-    predators_spawn(current_level);
+    treasure_spawn(current_level,
+                   level_count(lvl_treasures, LEVEL_EXTRA_TREASURES, current_level));
+    predators_spawn(n_rays, n_sharks,
+                    level_count(lvl_goos, LEVEL_EXTRA_GOOS, current_level));
 
     screen_clear(0x07, 0);   /* white ink, black paper */
 
@@ -231,8 +257,8 @@ static game_state_t state_intro_tick(void)
 #define LINTRO_SEA_Y        64    /* 4 char rows above centre */
 #define LINTRO_TARGET_PX    104   /* 13 * 8 = screen centre for 6-byte sprite */
 #define LINTRO_BOAT_WL      28
-#define LINTRO_BOAT_W       6
-#define LINTRO_BOAT_H       32
+#define LINTRO_BOAT_W       (BOAT_WIDTH / 8)   /* bytes, from boat.zxp */
+#define LINTRO_BOAT_H       BOAT_HEIGHT
 #define LINTRO_SCROLL_PX    2     /* pixels per frame */
 #define LINTRO_BOB_FRAMES   50    /* 1 second at 50 fps */
 #define LINTRO_DIVER_X      (DIVER_X >> 3)  /* col 15 */
@@ -248,13 +274,6 @@ static game_state_t state_intro_tick(void)
 #define LINTRO_DESCEND_SPEED 3     /* frames per pixel of descent */
 #define LINTRO_HOLD_FRAMES   25    /* 0.5 seconds at 50 fps */
 
-/* Same sine table as sea line — ±6 px, 32 entries */
-static const int8_t lintro_sine[32] = {
-     0,  1,  2,  3,  4,  5,  5,  6,
-     6,  6,  5,  5,  4,  3,  2,  1,
-     0, -1, -2, -3, -4, -5, -5, -6,
-    -6, -6, -5, -5, -4, -3, -2, -1
-};
 
 static int16_t lintro_px;
 static uint8_t lintro_phase;
@@ -274,7 +293,12 @@ static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
  * right. Scroll step is 2px and px stays even, so only shifts 2/4/6 occur
  * (shift 0 uses boat_bitmap directly). Each variant is built once. */
 #define LINTRO_BOAT_SW  (LINTRO_BOAT_W + 1)
-static uint8_t lintro_boat_sx[3][LINTRO_BOAT_SW * LINTRO_BOAT_H];
+/* Lives in the GOO-death scratch buffer (0x6000, transient): the boat
+ * intro and GOO death never overlap, and BSS has no room left under
+ * $FF58. Rebuilt every intro since GOO death overwrites it. */
+#define LINTRO_BOAT_SX_SIZE  (LINTRO_BOAT_SW * LINTRO_BOAT_H)
+#define LINTRO_BOAT_SX(si)  ((uint8_t *)0x6000 + (uint16_t)(si) * LINTRO_BOAT_SX_SIZE)
+typedef char lintro_boat_sx_fits[(3u * LINTRO_BOAT_SX_SIZE <= 0x0900u) ? 1 : -1];
 static uint8_t lintro_boat_have = 0;   /* bitmask of built variants */
 
 static const uint8_t *lintro_boat_data(uint8_t shift)
@@ -285,9 +309,9 @@ static const uint8_t *lintro_boat_data(uint8_t shift)
     if (!shift) return boat_bitmap;
 
     si = (shift >> 1) - 1;             /* shifts 2,4,6 -> slots 0,1,2 */
-    if (lintro_boat_have & (1 << si)) return lintro_boat_sx[si];
+    if (lintro_boat_have & (1 << si)) return LINTRO_BOAT_SX(si);
 
-    dst = lintro_boat_sx[si];
+    dst = LINTRO_BOAT_SX(si);
     for (row = 0; row < LINTRO_BOAT_H; row++) {
         const uint8_t *src = boat_bitmap + (uint16_t)row * LINTRO_BOAT_W;
         uint8_t carry = 0;
@@ -299,7 +323,7 @@ static const uint8_t *lintro_boat_data(uint8_t shift)
         dst += LINTRO_BOAT_SW;
     }
     lintro_boat_have |= (uint8_t)(1 << si);
-    return lintro_boat_sx[si];
+    return LINTRO_BOAT_SX(si);
 }
 
 /* Set clipped attribute rect covering the full bob range */
@@ -327,7 +351,7 @@ static uint8_t lintro_boat_y(void)
 {
     uint8_t center_col = (uint8_t)(((lintro_px >> 3) + 3) & 0x1F);
     uint8_t idx = (center_col + lintro_sea_phase) & 31;
-    return (uint8_t)(LINTRO_SEA_Y - LINTRO_BOAT_WL + lintro_sine[idx]);
+    return (uint8_t)(LINTRO_SEA_Y - LINTRO_BOAT_WL + sine_tab[idx]);
 }
 
 /* XOR sea line: combined erase-old + draw-new, no attrs */
@@ -346,7 +370,7 @@ static void lintro_sealine_tick(void)
         }
 
         idx = (col + lintro_sea_phase) & 31;
-        sy = (int16_t)LINTRO_SEA_Y + lintro_sine[idx];
+        sy = (int16_t)LINTRO_SEA_Y + sine_tab[idx];
         if (sy < 0 || sy >= 192) sy = 255;   /* offscreen sentinel */
 
         if (lintro_sl_prev[col] == (uint8_t)sy) continue;  /* unchanged */
@@ -373,6 +397,7 @@ static game_state_t state_level_intro_init(void)
     screen_clear(LINTRO_BG_ATTR, 1);
 
     lintro_px = -(int16_t)(LINTRO_BOAT_W * 8);
+    lintro_boat_have = 0;               /* scratch may hold GOO frames */
     lintro_boat_data(2);                /* prebuild shifted variants: ~3 frames */
     lintro_boat_data(4);
     lintro_boat_data(6);

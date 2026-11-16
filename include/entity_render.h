@@ -2,6 +2,7 @@
 #define _ENTITY_RENDER_H_
 
 #include <stdint.h>
+#include "../config/game_config.h"
 
 /* Sprite scale levels (Z distance → visual size) */
 #define SCALE_32    0
@@ -10,7 +11,6 @@
 #define SCALE_4     3
 #define SCALE_NONE  0xFF
 
-#define MAX_ENTITY_SLOTS 2
 
 typedef struct {
     uint8_t x, y, scale, attr, drawn;
@@ -18,12 +18,12 @@ typedef struct {
 } entity_slot_t;
 
 typedef struct {
-    entity_slot_t slots[MAX_ENTITY_SLOTS];
+    entity_slot_t slots[MAX_VISIBLE_ENTITIES];
     uint8_t count;
     uint8_t prev_count;
-    uint8_t prev_x[MAX_ENTITY_SLOTS];
-    uint8_t prev_y[MAX_ENTITY_SLOTS];
-    uint8_t prev_scale[MAX_ENTITY_SLOTS];
+    uint8_t prev_x[MAX_VISIBLE_ENTITIES];
+    uint8_t prev_y[MAX_VISIBLE_ENTITIES];
+    uint8_t prev_scale[MAX_VISIBLE_ENTITIES];
 } entity_pool_t;
 
 /* Environment Y anchor for entities at the current depth level.

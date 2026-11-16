@@ -54,15 +54,23 @@ void vsync_detect(void) __naked
     xor a
     ld  (hl), a
 
-    ;; ---- Detection order ----
-    ;; On 128K machines try the +2A/+3 port (0x0FFD) FIRST: on +2A/+3,
-    ;; port 0xFF can return non-FF garbage and would wrongly select the
-    ;; 48K path.  On a grey 128K/+2 the port is unmapped and returns
-    ;; floating-bus data anyway, which mode 2 tolerates (marker bit 0
-    ;; is already set for the |1 ORed values).
+    ;; ---- Test 48K floating bus (port 0xFF) ----
+    ;; Read up to 10 000 times (~2 frames).  If we ever see
+    ;; non-0xFF, the floating bus is active on this port.
+    ld  bc, 10000
+_vsd_48k_loop:
+    in  a, (0xFF)
+    cp  0xFF
+    jr  nz, _vsd_48k_ok
+    dec bc
+    ld  a, b
+    or  c
+    jr  nz, _vsd_48k_loop
+
+    ;; Port 0xFF failed.  If is_128k, try the +2A/+3 port.
     ld  a, (_is_128k)
     or  a
-    jr  z, _vsd_48k_test
+    jr  z, _vsd_halt
 
     ;; ---- Test +2A/+3 floating bus (port 0x0FFD) ----
     ;; Returns values ORed with 1.  Returns 0xFF if paging locked.
@@ -76,20 +84,6 @@ _vsd_128k_loop:
     ld  a, b
     or  c
     jr  nz, _vsd_128k_loop
-
-_vsd_48k_test:
-    ;; ---- Test 48K floating bus (port 0xFF) ----
-    ;; Read up to 10 000 times (~2 frames).  If we ever see
-    ;; non-0xFF, the floating bus is active on this port.
-    ld  bc, 10000
-_vsd_48k_loop:
-    in  a, (0xFF)
-    cp  0xFF
-    jr  nz, _vsd_48k_ok
-    dec bc
-    ld  a, b
-    or  c
-    jr  nz, _vsd_48k_loop
 
     ;; Both ports failed — emulator or paging-locked +2A/+3
 _vsd_halt:
@@ -154,49 +148,36 @@ void vsync_wait(void) __naked
     ;; Contended read preloads bus with col 3 value during idle.
     ;; ULA returns (attr | 1) during fetches — marker matches
     ;; because bit 0 is already set.
-    ;; Loop period is 51 T (odd -> the IN still visits every fetch phase).
-    ;; Outer C x inner B bounds the wait to ~2 frames; on timeout it falls
-    ;; back to HALT rather than hanging (128K timing, +2A paging lock,
-    ;; emulators with incomplete floating-bus emulation).
 _vs_128k:
     ld  e, 0x0F            ; E = port MSB (D = marker, set above)
-    ld  c, 8
-_vs_128k_blk:
-    ld  b, 250
 _vs_128k_loop:
     ld  a, (0x5AC3)        ; [13] contended read (bus ← 0x00)
     ld  a, e               ; [4]  A = 0x0F
     in  a, (0xFD)          ; [11] read port 0x0FFD
     cp  d                  ; [4]  marker?
-    ret z                  ; [5/11] match -> return
-    dec b                  ; [4]
-    jp  nz, _vs_128k_loop  ; [10] 51 T total
-    dec c
-    jr  nz, _vs_128k_blk
-    jr  _vs_halt
+    jp  nz, _vs_128k_loop  ; [10] 42 T total
+    ret
 
     ;; ============================================================
     ;; Mode 1: 48K/128K/+2 floating bus  (port 0x40FF, 35 T per iter)
     ;; ============================================================
-    ;; dec hl pads the loop to exactly 35 T-states so the IN
-    ;; instruction always lands on an attribute fetch, never a
-    ;; bitmap or idle interval.
-    ;; Loop period is 37 T (odd -> the IN still visits every fetch phase).
-    ;; Outer C x inner B bounds the wait to ~1.6 frames; on timeout it
-    ;; falls back to HALT rather than hanging.
+    ;; The loop is exactly 35 T-states so the IN instruction always
+    ;; lands on an attribute fetch, never a bitmap or idle interval.
+    ;; Same 35 T period as before, with a bounded wait: IN A,(C) frees
+    ;; the padding slot for an inner counter (L, 256 x 35 T), and the
+    ;; outer counter (H) gives ~2 frames before falling back to HALT,
+    ;; so a machine/emulator whose bus never shows the marker cannot hang.
 _vs_48k:
-    ld  e, 0x40            ; E = port MSB (D = marker, set above)
-    ld  c, 12
-_vs_48k_blk:
-    ld  b, 250
+    ld  bc, 0x40FF         ; port 0x40FF
+    ld  hl, 0x1000         ; H = 16 outer blocks, L = 0 -> 256 inner
 _vs_48k_loop:
-    ld  a, e               ; [4]  A = 0x40
-    in  a, (0xFF)          ; [11] read port 0x40FF
+    in  a, (c)             ; [12] read port 0x40FF
     cp  d                  ; [4]  marker?
-    ret z                  ; [5/11] match -> return
-    djnz _vs_48k_loop      ; [13/8] 37 T total
-    dec c
-    jr  nz, _vs_48k_blk
+    ret z                  ; [5]  (11 when taken)
+    dec l                  ; [4]
+    jp  nz, _vs_48k_loop   ; [10] 35 T total
+    dec h
+    jr  nz, _vs_48k_loop
     jr  _vs_halt
 
     ;; ============================================================

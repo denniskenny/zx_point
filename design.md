@@ -204,7 +204,7 @@ The target type determines the sonar pitch:
 The pitch change allows the player to distinguish what they are approaching by ear alone, which is critical since GOOs are invisible.
 
 ##### Distance Mapping
-Sonar ping frequency increases as the player approaches the target using a quadratic curve. The range in cubes is configurable (SONAR_RANGE_FAR, default 10). The ping interval ranges from every 2 seconds at 10 cubes away (SONAR_INTERVAL_FAR=100 frames) to every 0.25 seconds at 1 cube away (SONAR_INTERVAL_NEAR=12 frames). 
+Sonar ping frequency increases as the player approaches the target using a quadratic curve. The range in cubes is configurable (SONAR_RANGE_FAR, default 10). The ping interval ranges from every 2 seconds at 10 cubes away (100 frames) to every 0.25 seconds at 1 cube away (12 frames); the curve is the `sonar_intervals[]` table in `src/sound.c`. 
 
 
 #### Additional sound effects

@@ -18,7 +18,7 @@
 #define SINE_LEN   32
 #define SINE_SHIFT 3    /* divide x by 8 to index table (256/32=8) */
 
-static const int8_t sine_tab[SINE_LEN] = {
+const int8_t sine_tab[SINE_LEN] = {
      0,  1,  2,  3,  4,  5,  5,  6,
      6,  6,  5,  5,  4,  3,  2,  1,
      0, -1, -2, -3, -4, -5, -5, -6,

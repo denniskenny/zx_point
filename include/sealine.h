@@ -9,6 +9,9 @@
 
 #define SEALINE_DEFAULT_Y  80  /* 2 char rows above screen centre */
 
+/* 32-entry sine table, amplitude +-6 px (shared with the boat intro) */
+extern const int8_t sine_tab[32];
+
 /* Initialise the sea line at its default position (2 char rows above centre) */
 void sealine_init(void);
 

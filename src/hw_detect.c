@@ -81,21 +81,29 @@ void hw_detect(void)
     _hw_done:
 
         ;; --- Kempston joystick detection ---
-        ;; Read port 0x1F several times. A real Kempston returns 0
-        ;; when idle; a floating bus returns varying non-zero values.
-        ld  b, 8            ; sample 8 times
+        ;; A real Kempston reads 0 when idle. Without one, port 0x1F floats
+        ;; and returns whatever byte the ULA is fetching (0xFF in the border,
+        ;; screen/attr bytes otherwise), which can also be 0 now and then.
+        ;; So require EVERY sample to be 0, spread over ~1 frame.
+        ld  b, 64           ; 64 samples x ~1.1k T ~= 1 frame
         ld  c, 0x1F
     _kemp_loop:
-        in  a, (c)
+        push bc
+        ld  b, 0x00
+        in  a, (c)          ; port 0x001F
+        pop bc
         or  a
-        jr  z, _kemp_found  ; read 0 → Kempston present
+        jr  nz, _kemp_none  ; any non-zero read -> no Kempston
+        ld  d, 80           ; spacing delay so samples span the frame
+    _kemp_dly:
+        dec d
+        jr  nz, _kemp_dly
         djnz _kemp_loop
-        ;; No zero seen — no Kempston
-        xor a
+        ld  a, 1
         ld  (_has_kempston), a
         jr  _kemp_done
-    _kemp_found:
-        ld  a, 1
+    _kemp_none:
+        xor a
         ld  (_has_kempston), a
     _kemp_done:
     __endasm;

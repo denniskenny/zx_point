@@ -15,7 +15,7 @@ static const uint8_t scale_attr_h[] = { 4, 2, 1, 1 };
 void entity_pool_init(entity_pool_t *pool)
 {
     uint8_t i;
-    for (i = 0; i < MAX_ENTITY_SLOTS; i++)
+    for (i = 0; i < MAX_VISIBLE_ENTITIES; i++)
         pool->slots[i].drawn = 0;
     pool->count = 0;
     pool->prev_count = 0;
@@ -93,7 +93,7 @@ uint8_t entity_pool_draw(entity_pool_t *pool, uint8_t sx, uint8_t sy,
     entity_slot_t *s;
     uint8_t adj_x, adj_y;
 
-    if (pool->count >= MAX_ENTITY_SLOTS)
+    if (pool->count >= MAX_VISIBLE_ENTITIES)
         return 0;
 
     adj_x = (sx + scale_x_offset[scale]) & 0xF8;

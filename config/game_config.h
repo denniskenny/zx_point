@@ -29,7 +29,6 @@
 #define KEMP_PORT  0x001F   /* active-high: R=0 L=1 D=2 U=3 Fire=4 */
 
 /* --- Bubblefield parameters --- */
-#define NUM_BUBBLES  45
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
 #define XY_SPAN    256      /* XY_HALF * 2              */
 #define Z_MIN      1
@@ -50,9 +49,11 @@
 #define BUBBLES_DEPTH1  45
 #define BUBBLES_DEPTH2  35
 #define BUBBLES_DEPTH3  29
+/* Bubble array size = largest depth count (derived, don't edit) */
+#define BUBBLES_MAX2(a, b)  ((a) > (b) ? (a) : (b))
+#define NUM_BUBBLES  BUBBLES_MAX2(BUBBLES_DEPTH1, BUBBLES_MAX2(BUBBLES_DEPTH2, BUBBLES_DEPTH3))
 
 /* --- Distances (in cube units) --- */
-#define CUBE_DISTANCE     32   /* frames to cross 1 cube at max horizontal speed */
 #define CONTACT_DISTANCE  2    /* X/Y proximity for treasure pickup */
 #define TREASURE_VISIBLE_RANGE  4  /* grid cells: sprite appears when within range */
 
@@ -125,7 +126,9 @@
 
 /* --- Predator limits --- */
 #define MAX_PREDATORS       64
-#define MAX_VISIBLE_PREDS   2
+/* Max sprites drawn at once per entity type (predators, treasures).  */
+/* Each slot costs draw time; 8 x 32x32 XOR sprites is ~1/3 of a frame. */
+#define MAX_VISIBLE_ENTITIES  8
 
 /* --- Predator grid movement (frames between cube changes) --- */
 #define PRED_RAY_GRID_INTERVAL    250   /* 5s  */
@@ -148,12 +151,34 @@
 #define PRED_SHARK_PURSUE_RANGE  2
 
 /* --- Sonar ranges / intervals (in cube units & frames) --- */
-#define SONAR_RANGE_FAR    10
-#define SONAR_RANGE_NEAR   1
-#define SONAR_INTERVAL_FAR   100  /* frames (~2s at 50fps) */
-#define SONAR_INTERVAL_NEAR  12   /* frames (~0.25s)       */
+#define SONAR_RANGE_FAR    10   /* must match sonar_intervals[] length in sound.c */
 
-/* --- Ray constant --- */
-#define RAY_CONSTANT  1
+/* ================================================================== */
+/* Level contents                                                      */
+/* ================================================================== */
+/* Entry N is level N+1. Levels beyond LEVEL_TABLE_LEN take the last   */
+/* entry plus LEVEL_EXTRA_* for each further level. Counts are capped  */
+/* at MAX_TREASURES / MAX_PREDATORS.                                   */
+/* Rays live at depth 1, sharks at depth 2, GOOs at depth 3.          */
+#define LEVEL_TABLE_LEN    5
+/*                         L1  L2  L3  L4  L5 */
+#define LEVEL_TREASURES  {  1,  2,  3,  4,  5 }
+#define LEVEL_RAYS       {  1,  2,  3,  4,  5 }
+#define LEVEL_SHARKS     {  3,  0,  1,  2,  3 }
+#define LEVEL_GOOS       {  1,  1,  1,  1,  1 }  /* L1-4 = 1 for GOO testing; design says 0 */
+
+#define LEVEL_EXTRA_TREASURES  1
+#define LEVEL_EXTRA_RAYS       1
+#define LEVEL_EXTRA_SHARKS     1
+#define LEVEL_EXTRA_GOOS       1
+
+/* --- Predator stress-test build (make test-preds) --- */
+/* -DTEST_MANY_PREDS replaces the ray/shark counts on every level.    */
+#ifndef TEST_RAYS
+#define TEST_RAYS    40
+#endif
+#ifndef TEST_SHARKS
+#define TEST_SHARKS  23
+#endif
 
 #endif /* _GAME_CONFIG_H_ */

@@ -6,7 +6,7 @@
  * GOOs (depth 3): slow random grid movement, grid-based instant death.
  *
  * Rendering uses XOR sprites via the shared entity_render pool.
- * Up to MAX_VISIBLE_PREDS predators drawn simultaneously.
+ * Up to MAX_VISIBLE_ENTITIES predators drawn simultaneously.
  */
 
 #include <stdint.h>
@@ -83,23 +83,17 @@ static void spawn_one(uint8_t idx, uint8_t type)
 /* ------------------------------------------------------------------ */
 /* Spawn predators for a level                                         */
 /* ------------------------------------------------------------------ */
-void predators_spawn(uint8_t level_num)
+/* Counts come from the LEVEL_* tables in config/game_config.h.       */
+void predators_spawn(uint8_t n_rays, uint8_t n_sharks, uint8_t n_goos)
 {
     uint8_t i, idx;
-    uint8_t n_rays, n_sharks, n_goos;
 
     predator_count = 0;
-    /* TEMP: disabled for GOO testing */
-    /* if (level_num < 2) return; */
 
-    n_rays   = level_num * RAY_CONSTANT;
-    n_sharks = (level_num >= 3) ? (level_num - 2) : 0;
-    n_goos   = (level_num >= 5) ? (level_num - 4) : 0;
-    /* TEMP: spawn one GOO on level 1 for testing */
-    if (n_goos == 0) n_goos = 1;
-
-    /* Cap to MAX_PREDATORS */
-    if (n_rays + n_sharks + n_goos > MAX_PREDATORS)
+    /* Cap to MAX_PREDATORS, dropping rays first */
+    if ((uint16_t)n_sharks + n_goos >= MAX_PREDATORS)
+        n_rays = 0;
+    else if ((uint16_t)n_rays + n_sharks + n_goos > MAX_PREDATORS)
         n_rays = MAX_PREDATORS - n_sharks - n_goos;
 
     idx = 0;
