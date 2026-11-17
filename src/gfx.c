@@ -377,3 +377,26 @@ void print_at(uint8_t col, uint8_t row, const char *s)
         px += 8;
     }
 }
+
+void xor_print_at(uint8_t col, uint8_t row, const char *s)
+{
+    uint8_t px, py, i;
+    uint16_t off;
+    const uint8_t *glyph;
+
+    px = col << 3;
+    py = row << 3;
+
+    while (*s) {
+        if (col >= 32) break;
+        glyph = ROM_FONT + (((uint8_t)*s - 32) << 3);
+        off = scr_off(px, py);
+        for (i = 0; i < 8; i++) {
+            SCREEN[off] ^= glyph[i];
+            off += 256;  /* next pixel row within char cell */
+        }
+        s++;
+        col++;
+        px += 8;
+    }
+}

@@ -66,6 +66,11 @@
 #define CUBE_SUB_XY     16
 #define CUBE_SUB_Z      300
 
+/* Sub-depth the diver starts each dive at (0 = surface, CUBE_SUB_Z-1 =
+ * bottom of the top cube). Half-way down gives ~2 s of held-Z descent
+ * before the first zone boundary, so the SUNLIT ZONE banner has gone. */
+#define DIVE_START_SUB_Z  (CUBE_SUB_Z / 2)
+
 /* --- Speed divisors --- */
 /* Effective speed = SPEED / divisor.                               */
 /* Higher values = slower.  1 = full speed, 4 = quarter speed.     */

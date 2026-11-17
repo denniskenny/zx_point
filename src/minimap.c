@@ -130,7 +130,7 @@ void minimap_draw(void)
         }
     }
 
-    /* --- Draw treasure dots (XOR, red, 1x1 pixel, same depth only) --- */
+    /* --- Draw treasure dots (XOR, green, 1x1 pixel, same depth only) --- */
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
         if (treasures[i].gy != player.gy) continue;
@@ -139,10 +139,10 @@ void minimap_draw(void)
         xor_plot(px, py);
         cell_col = MINIMAP_COL + 3 - (treasures[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (treasures[i].gz >> 3);
-        ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
+        ATTR[cell_row * 32 + cell_col] = 0x04;  /* green ink, black paper */
     }
 
-    /* --- Draw predator dots (XOR, green, 1x1, same depth only) --- */
+    /* --- Draw predator dots (XOR, red, 1x1, same depth only) --- */
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
         if (predators[i].type != player.gy) continue;
@@ -152,9 +152,9 @@ void minimap_draw(void)
         cell_col = MINIMAP_COL + 3 - (predators[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (predators[i].gz >> 3);
         if (predators[i].type == PRED_GOO)
-            ATTR[cell_row * 32 + cell_col] = 0x84;  /* green ink + FLASH */
+            ATTR[cell_row * 32 + cell_col] = 0x82;  /* red ink + FLASH */
         else
-            ATTR[cell_row * 32 + cell_col] = 0x04;  /* green ink, black paper */
+            ATTR[cell_row * 32 + cell_col] = 0x02;  /* red ink, black paper */
     }
 
     /* --- Draw player dot (XOR, yellow, 2x2 pixels, centred) --- */

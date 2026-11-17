@@ -123,19 +123,17 @@ void vsync_wait(void) __naked
     ld  d, a                ; [4]  D = marker for detection loop
 
     ;; ---- Refresh marker every frame ----
-    ;; Writes 4 bytes to attr RAM (~50 T with contention).
+    ;; Writes 3 bytes to attr RAM (~40 T with contention).
     ;; Guarantees marker survives screen_clear() between states.
+    ;; Col 3 is left alone: it holds the vignette attr for the
+    ;; flashing-red button (0x90), which already differs from the
+    ;; marker in bits 0-2 as the +2A/+3 preload requires.
     ld  hl, 0x5AC0          ; row 22, col 0
     ld  (hl), d
     inc l
     ld  (hl), d             ; col 1
     inc l
     ld  (hl), d             ; col 2
-    inc l
-    ld  a, d
-    and 0x40                ; keep bright only
-    or  0x84                ; flash + green ink, black paper (matches vignette)
-    ld  (hl), a             ; col 3 = preload byte (differs from marker in bits 0-2)
 
     ;; ---- Branch on mode 1 vs 2 ----
     ld  a, (_vsync_mode)

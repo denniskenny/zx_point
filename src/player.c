@@ -20,7 +20,7 @@ void player_init(void)
     player.gy = 0;                  /* depth 1 (shallowest) */
     player.sub_x = CUBE_SUB_XY / 2;
     player.sub_y = CUBE_SUB_XY / 2;
-    player.sub_z = CUBE_SUB_Z - 1; /* bottom of sub-cube (buoyancy floats up) */
+    player.sub_z = DIVE_START_SUB_Z; /* mid-cube: some descent before the first boundary */
     player.health = HEALTH_MAX;
     player.oxygen = OXYGEN_MAX;
     player.invuln_timer = 0;

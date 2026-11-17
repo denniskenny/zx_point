@@ -53,6 +53,13 @@ static uint8_t was_edge_x, was_edge_z;
 /* --- Draw state: computed in logic phase, consumed next draw phase --- */
 static int8_t bubble_vx, bubble_vy, bubble_vz;
 
+/* --- Depth-zone banner (centre-screen text shown ~1 s on depth change) --- */
+static const char *zone_str;    /* text queued to show */
+static const char *zone_drawn_str;  /* text actually XORed on screen */
+static uint8_t zone_ctr;        /* frames remaining */
+static uint8_t zone_drawn;      /* text currently XORed on screen */
+static uint8_t zone_pending;    /* new text queued by the logic phase */
+
 /* --- Persistent state across game states --- */
 static uint8_t current_level;
 /* How the last dive ended (drives the summary / game-over screens) */
@@ -62,6 +69,21 @@ static uint8_t current_level;
 static uint8_t game_over_flag;
 static uint8_t anim_timer;
 static uint8_t key_debounce;
+
+/* --- Depth-zone names (indexed by player.gy) --- */
+static const char * const zone_names[3] = {
+    "S U N L I T  Z O N E",
+    "M I D N I G H T  Z O N E",
+    "A B Y S S A L  Z O N E"
+};
+
+#define ZONE_ROW  9             /* character row, roughly screen centre */
+#define ZONE_FRAMES  50         /* 1 second at 50 fps */
+
+static void xor_zone_text(const char *s)
+{
+    xor_print_at((uint8_t)((32 - strlen(s)) >> 1), ZONE_ROW, s);
+}
 
 /* --- Function-pointer types --- */
 typedef game_state_t (*init_fn)(void);
@@ -593,7 +615,7 @@ static game_state_t state_game_init(void)
     if (game_over_flag == OUTCOME_SURFACED) {
         /* Continuing after surfacing — keep position, replenish oxygen */
         player.oxygen = OXYGEN_MAX;
-        player.sub_z = CUBE_SUB_Z - 1;
+        player.sub_z = DIVE_START_SUB_Z;
         player.invuln_timer = 0;
     } else {
         player_init();
@@ -623,6 +645,10 @@ static game_state_t state_game_init(void)
     seafloor_init();
     sf_cull_y = 0;
     sf_cull_y_floor = 0;
+
+    /* Every dive starts in the sunlit zone */
+    zone_str = zone_names[0];
+    zone_pending = 1;
 
     return STATE_GAME;
 }
@@ -860,6 +886,21 @@ static game_state_t state_game_tick(void)
     minimap_draw();
     depth_indicator_draw();
 
+    /* Depth-zone banner: draw once, erase after ZONE_FRAMES.
+     * Erasing must use zone_drawn_str (what's on screen), not zone_str
+     * (which may already be the replacement text). */
+    if (zone_pending) {
+        if (zone_drawn) xor_zone_text(zone_drawn_str);
+        xor_zone_text(zone_str);
+        zone_drawn_str = zone_str;
+        zone_drawn = 1;
+        zone_pending = 0;
+        zone_ctr = ZONE_FRAMES;
+    } else if (zone_drawn && --zone_ctr == 0) {
+        xor_zone_text(zone_drawn_str);
+        zone_drawn = 0;
+    }
+
     /* === LOGIC PHASE ============================================== */
     game_update_velocity();
 
@@ -868,6 +909,8 @@ static game_state_t state_game_tick(void)
         bubbles_set_count(depth_bubbles[player.gy]);
         predators_hide_all();
         treasure_hide_all();
+        zone_str = zone_names[player.gy];
+        zone_pending = 1;
     }
     game_world_edges();
     bubble_vx = sv_x;

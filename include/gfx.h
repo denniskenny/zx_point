@@ -51,4 +51,7 @@ void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h);
  * using the ROM font. Does not set attributes. */
 void print_at(uint8_t col, uint8_t row, const char *s);
 
+/* Same as print_at but XOR: call it again with the same args to erase */
+void xor_print_at(uint8_t col, uint8_t row, const char *s);
+
 #endif /* _GFX_H_ */
