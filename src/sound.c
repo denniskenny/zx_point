@@ -17,8 +17,8 @@
 #include <stdint.h>
 #include "../config/game_config.h"
 #include "../include/sound.h"
+#include "../include/depth.h"
 
-extern uint8_t border_val;
 
 /* --- Ping state machine --- */
 static uint8_t sfx_step;   /* 0=idle, 1-4 = next tone phase */

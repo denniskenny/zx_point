@@ -17,6 +17,7 @@
 #include "../include/gfx.h"
 #include "../include/depth.h"
 #include "../include/entity_render.h"
+#include "../include/grid.h"
 #include "../include/sprites_packed.h"
 
 /* --- PRNG (shared algorithm, separate stream from bubblefield & treasure) --- */
@@ -58,6 +59,13 @@ static uint8_t     pred_keep[MAX_VISIBLE_ENTITIES]; /* new slot already shown */
 static const uint8_t pscale_x_off[] = { 0, 8, 12, 14 };
 static const uint8_t pscale_y_off[] = { 0, 16, 24, 28 };
 static const uint8_t pscale_attr_wh[] = { 4, 2, 1, 1 };
+
+/* Ink colour per predator type; paper comes from the depth layer */
+static const uint8_t pred_ink[3] = {
+    1,      /* PRED_RAY   — blue */
+    7,      /* PRED_SHARK — white */
+    1       /* PRED_GOO   — (never rendered) */
+};
 
 /* --- Downscaled predator frame tables --- */
 /* Index = face_left * 2 + anim frame. Art faces right; _m = mirrored. */
@@ -139,11 +147,22 @@ void predators_spawn(uint8_t n_rays, uint8_t n_sharks, uint8_t n_goos)
 /* ------------------------------------------------------------------ */
 /* Update all predators (called once per frame)                        */
 /* ------------------------------------------------------------------ */
+/* One grid step along an axis, bouncing between 1 and hi */
+static void grid_bounce(uint8_t *g, int8_t *d, uint8_t hi)
+{
+    if (*d > 0) {
+        if (*g < hi) (*g)++;
+        else *d = -1;
+    } else {
+        if (*g > 1) (*g)--;
+        else *d = 1;
+    }
+}
+
 void predators_update(void)
 {
     predator_t *p;
     predator_t *end = predators + predator_count;
-    int8_t dx, dz;
 
     for (p = predators; p < end; p++) {
         if (!p->active) continue;
@@ -154,46 +173,22 @@ void predators_update(void)
 
             /* Shark AI: pursue player when within range */
             if (p->type == PRED_SHARK && player.gy == 1) {
-                dx = (int8_t)player.gx - (int8_t)p->gx;
-                dz = (int8_t)player.gz - (int8_t)p->gz;
-                if (dx < 0) dx = -dx;
-                if (dz < 0) dz = -dz;
-                if (dx <= PRED_SHARK_PURSUE_RANGE &&
-                    dz <= PRED_SHARK_PURSUE_RANGE) {
-                    if (player.gx > p->gx) p->gdx = 1;
-                    else if (player.gx < p->gx) p->gdx = -1;
-                    if (player.gz > p->gz) p->gdz = 1;
-                    else if (player.gz < p->gz) p->gdz = -1;
+                if (grid_dist(player.gx, player.gz, p->gx, p->gz)
+                        <= PRED_SHARK_PURSUE_RANGE) {
+                    grid_steer(&p->gdx, p->gx, player.gx);
+                    grid_steer(&p->gdz, p->gz, player.gz);
                 }
             }
 
-            /* Move and bounce on grid X */
-            if (p->gdx > 0) {
-                if (p->gx < GRID_W - 2) p->gx++;
-                else p->gdx = -1;
-            } else {
-                if (p->gx > 1) p->gx--;
-                else p->gdx = 1;
-            }
-
-            /* Move and bounce on grid Z */
-            if (p->gdz > 0) {
-                if (p->gz < GRID_H - 2) p->gz++;
-                else p->gdz = -1;
-            } else {
-                if (p->gz > 1) p->gz--;
-                else p->gdz = 1;
-            }
+            /* Move diagonally, bouncing off the grid edges */
+            grid_bounce(&p->gx, &p->gdx, GRID_W - 2);
+            grid_bounce(&p->gz, &p->gdz, GRID_H - 2);
         }
 
         /* --- Visibility: within range + same depth, not GOO --- */
         if (p->type != PRED_GOO && p->type == player.gy) {
-            dx = (int8_t)(player.gx - p->gx);
-            dz = (int8_t)(player.gz - p->gz);
-            if (dx < 0) dx = -dx;
-            if (dz < 0) dz = -dz;
-            p->visible = (dx <= PRED_VISIBLE_RANGE &&
-                          dz <= PRED_VISIBLE_RANGE) ? 1 : 0;
+            p->visible = grid_dist(player.gx, player.gz, p->gx, p->gz)
+                         <= PRED_VISIBLE_RANGE;
         } else {
             p->visible = 0;
         }
@@ -269,22 +264,19 @@ void predators_render(uint8_t frame_ctr, uint8_t show)
 {
     uint8_t i, j, scale;
     predator_t *p;
-    int8_t dgz;
     int16_t dx_sub;
     uint8_t sx, ax, ay, attr, bg_attr;
     pred_slot_t *n;
 
     /* --- 1. Work out this frame's sprites (no screen writes yet) --- */
     pred_new_n = 0;
-    attr = depth_get_paper() | 0x04;
+    attr = depth_get_paper();
     for (i = 0; show && i < predator_count &&
                 pred_new_n < MAX_VISIBLE_ENTITIES; i++) {
         p = &predators[i];
         if (!p->visible) continue;
 
-        dgz = (int8_t)(player.gz - p->gz);
-        if (dgz < 0) dgz = -dgz;
-        scale = entity_z_to_scale((uint8_t)dgz);
+        scale = entity_z_to_scale(grid_absdiff(player.gz, p->gz));
         if (scale == SCALE_NONE) continue;
 
         dx_sub = (int16_t)(p->gx - player.gx) * CUBE_SUB_XY
@@ -303,7 +295,8 @@ void predators_render(uint8_t frame_ctr, uint8_t show)
         if (ay >= VIEW_H) continue;
 
         n = &pred_new[pred_new_n++];
-        n->x = ax; n->y = ay; n->scale = scale; n->attr = attr;
+        n->x = ax; n->y = ay; n->scale = scale;
+        n->attr = attr | pred_ink[p->type];
         n->frame = pred_pick_frame(p->type, scale, frame_ctr, p->face_left);
     }
 
@@ -343,7 +336,6 @@ uint8_t predators_check_collision(void)
 {
     predator_t *p;
     predator_t *end = predators + predator_count;
-    int8_t dx, dz;
     uint8_t result = 0;
 
     for (p = predators; p < end; p++) {
@@ -363,12 +355,7 @@ uint8_t predators_check_collision(void)
         }
 
         /* Grid proximity check */
-        dx = (int8_t)(player.gx - p->gx);
-        dz = (int8_t)(player.gz - p->gz);
-        if (dx < 0) dx = -dx;
-        if (dz < 0) dz = -dz;
-
-        if (dx < CONTACT_DISTANCE && dz < CONTACT_DISTANCE) {
+        if (grid_dist(player.gx, player.gz, p->gx, p->gz) < CONTACT_DISTANCE) {
             p->proximity_ctr++;
             if (p->proximity_ctr >= PRED_PROXIMITY_FRAMES) {
                 p->proximity_ctr = 0;

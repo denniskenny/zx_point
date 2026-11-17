@@ -10,9 +10,6 @@
 /* Convert (x,y) pixel coords to screen-RAM byte offset */
 uint16_t scr_off(uint8_t x, uint8_t y);
 
-/* Toggle a single pixel (XOR) */
-void plot(uint8_t *buf, uint8_t x, uint8_t y);
-
 /* Set a rectangle of attribute cells */
 void set_attr_rect(uint8_t col, uint8_t row, uint8_t w, uint8_t h,
                    uint8_t attr);
@@ -49,10 +46,6 @@ void write_blit(int8_t col, uint8_t y, const uint8_t *data,
 
 /* Clear (zero) a rect of screen bytes with left-edge clipping. */
 void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h);
-
-/* Direct-write blit at pixel X (handles sub-byte shifting). */
-void write_blit_px(int16_t px, uint8_t y, const uint8_t *data,
-                   uint8_t w, uint8_t h);
 
 /* Print a null-terminated string at character position (col, row)
  * using the ROM font. Does not set attributes. */

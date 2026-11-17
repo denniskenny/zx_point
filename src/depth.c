@@ -92,11 +92,6 @@ uint8_t depth_get_attr(uint8_t layer)
     return depth_attr[layer];
 }
 
-uint8_t depth_get_border(uint8_t layer)
-{
-    return depth_border[layer];
-}
-
 uint8_t depth_get_paper(void)
 {
     /* Read a cell that is always set by depth_set / transition tick.

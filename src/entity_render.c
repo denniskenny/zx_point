@@ -115,20 +115,3 @@ uint8_t entity_pool_draw(entity_pool_t *pool, uint8_t sx, uint8_t sy,
     pool->count++;
     return 1;
 }
-
-uint8_t entity_z_to_scale(uint8_t z_dist)
-{
-    if (z_dist <= 1) return SCALE_32;
-    if (z_dist == 2) return SCALE_16;
-    if (z_dist == 3) return SCALE_8;
-    if (z_dist == 4) return SCALE_4;
-    return SCALE_NONE;
-}
-
-uint8_t entity_screen_x(int16_t dx_sub)
-{
-    int16_t sx = (DIVER_X - 8) - (dx_sub * 3 / 4);
-    if (sx < PRED_X_MIN) sx = PRED_X_MIN;
-    if (sx > PRED_X_MAX) sx = PRED_X_MAX;
-    return (uint8_t)sx & 0xF8;
-}

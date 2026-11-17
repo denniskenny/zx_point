@@ -1,62 +1,47 @@
 # Memory Audit — `downship.map`
 
-Parsed from the current build (map was the newest file, so it reflects current
-sources). Code origin `0x8000`, 48K target, `.tap` = **31,214 bytes**.
+Regenerate with `make -B downship.tap USER_CFLAGS=-m` and read the
+`__*_head` / `__*_tail` symbols in `downship.map`. 48K target, code origin
+`0x8000`, `.tap` = **31,365 bytes** (audited 2026-11-17).
 
 ## Full 48K RAM Map (`0x4000`–`0xFFFF`)
 
 | Region | Range | Size | Notes |
 |---|---|---|---|
 | ULA screen + attrs | `0x4000`–`0x5AFF` | 6,912 | display file |
-| free | `0x5B00`–`0x5FFF` | ~1,280 | (printer buffer area) |
-| GOO scratch buffer | `0x6000`–`0x68FF` | 2,304 | **transient** — GOO death only |
+| printer buffer, system variables, BASIC loader | `0x5B00`–`0x5FFF` | — | **in use by the ROM** (IM1 ISR, `IY=0x5C3A`); don't reuse |
+| GOO scratch buffer | `0x6000`–`0x68FF` | 2,304 | **transient**: GOO death frames, and the boat-intro shifted-sprite cache (672 B) — never live at the same time |
 | bit-reverse table | `0x6900`–`0x69FF` | 256 | GOO mirror blit |
-| sprite arena (unpacked) | `0x6A00`–~`0x7900` | ~3,800 | resident sprites (from 977 B ZX0 blob) |
-| free | ~`0x7900`–`0x80E0` | ~1,900 | low-RAM headroom |
+| sprite arena (unpacked) | `0x6A00`–`0x7A10` | 4,112 | resident sprites, from a 1,355 B ZX0 blob |
+| free / stack growth room | `0x7A10`–~`0x7F5D` | ~1,350 | |
+| **stack** | grows down from `0x7FFF` | deepest seen `0x7F5D` | BASIC `CLEAR 32767` sets SP; z88dk keeps it (`__register_sp = -1`) |
 | CRT startup | `0x8000`–`0x80E0` | 224 | |
-| **CODE + rodata** | `0x80E0`–`0xCB65` | **19,077** | code + compressed assets |
-| **free (largest block)** | `0xCB65`–`0xF373` | **10,254** | biggest contiguous gap |
-| DATA (init) | `0xF373`–`0xF393` | 32 | |
-| BSS (globals) | `0xF393`–`0xF99E` | 1,547 | |
-| **stack** | `0xF99E`–`0xFFFF` | **1,633** | SP starts `0xFFFF`, grows down |
+| C code (`code_compiler`) | `0x82BC`–`0xC41B` | 16,735 | |
+| asm code (`code_user`: Tritone engine + tunes) | `0xC61E`–`0xCD99` | 1,915 | |
+| rodata (`rodata_compiler`) | `0xCD99`–`0xEF8D` | 8,692 | compressed assets + const tables |
+| library / misc sections | `0xEF8D`–`0xF31B` | ~910 | |
+| DATA (initialised) | `0xF31B`–`0xF33C` | 33 | |
+| BSS (zeroed globals) | `0xF33C`–`0xFA35` | 1,785 | |
+| **free** | `0xFA35`–`0xFF56` | **~1,313** | `0xFF56` = `CRT_MAX_HEAP_ADDRESS`; above it are the ROM UDGs |
 
-## Code Size by Module (compiled span)
+**Important:** there is *no* large free gap in the code/data area. Everything
+from `0x8000` to `0xFA35` is used, so the real headroom for new code,
+constants or globals is the ~1.3 KB at the top. If the build reports
+`Section exceeds 64k`, that region has been used up.
 
-Pure compiled code (`__code_compiler`) = **16,171 B**. Largest consumers:
+## Compressed Assets (rodata)
 
-- `state.c` — ~4,810 B (all game states + GOO death asm)
-- `predators.c` — ~1,885 B
-- `gfx.c` — ~1,486 B
-- `bubblefield.c` — ~1,383 B
-- `minimap.c` — ~1,193 B
-- `treasure.c` — ~1,063 B
-- `entity_render.c` — ~995 B
-- Remaining modules each < 600 B
-
-## Compressed Assets (rodata, in CODE section)
-
-- `goo_data.h` — ~3,380 B (4 anglerfish frames, ZX0)
 - `title_logo.h` — ~2,411 B (logo + attrs, ZX0)
+- `goo_data.h` — 2,318 B (4 anglerfish frames, 3 stored: frames 3/4 are identical and share data)
+- `sprites_blob.h` — 1,355 B (all resident sprites, ZX0 → unpacked to `0x6A00`)
 - `vignette.h` — ~1,191 B (ZX0)
-- `sprites_blob.h` — 977 B (all resident sprites, ZX0 → unpacked to `0x6A00`)
 
-## Verdict
+## Notes
 
-**Fits 48K comfortably — no collisions, ample headroom.**
-
-- **~13.4 KB free** total: 10,254 B main gap (`0xCB65`–`0xF373`) + ~1,900 B
-  low-RAM + ~1,280 B below screen.
-- **Low-RAM arenas are safe**: sprite arena ends ~`0x7900`, ~1,900 B clear of the
-  `0x8000` code origin. The GOO scratch buffer at `0x6000` is transient (death
-  sequence only) and doesn't overlap resident data.
-- **Stack: 1,633 B** (`0xF99E`→`0xFFFF`). Fine for this codebase (no recursion),
-  but it's bounded by BSS top at `0xF99E`, not by the 10 KB gap.
-
-## Recommendations
-
-- **No trimming needed** — plenty of room for remaining Phase 10 / lore features.
-- **If stack ever gets tight**: the 10 KB gap sits below DATA (`0xF373`), so
-  raising stack headroom would mean relocating DATA/BSS lower rather than
-  expanding upward. Not needed now.
-- **Biggest future savings lever** (if ever required): `state.c` and the
-  compressed assets dominate — but at ~13 KB free there's no pressure.
+- **Stack** lives below `0x8000`, between the sprite arena and the code. The
+  sprite arena growing past ~`0x7E00` would start to collide with it. Mirroring
+  another 32x32 sprite (with 16/8 downscales) costs ~336 B of arena.
+- **Sprite data the game never reads** is kept out of the blob with
+  `SPRITE_DROP` in the Makefile (per-sprite attribute arrays, etc.).
+- **Biggest levers if space runs out:** `state.c` is the largest module; the
+  compressed title logo and GOO frames dominate rodata.

@@ -8,11 +8,8 @@
 /*                                                                    */
 /* For static screens only (title, intro briefing, summary, game     */
 /* over). Plays the Channel A lead of the design-doc sea shanties on  */
-/* the 48K beeper. Advances one step per music_tick(); a tick must be */
-/* driven from a screen's per-frame loop, so the melody only plays    */
-/* while that loop runs. NOT interrupt-driven — safe with -startup=31 */
-/* (interrupts disabled) and incompatible with the GAME state, where  */
-/* the sonar ping owns the speaker.                                   */
+/* the 48K beeper. Playback is blocking and vsync-paced, so it never */
+/* overlaps the GAME state (where the sonar ping owns the speaker).   */
 /* ================================================================== */
 
 /* One note: delay = pitch (0 = rest, higher = lower pitch, matches
@@ -26,15 +23,6 @@ typedef struct {
  * arrangements (see below); only the short fanfare remains single-voice. */
 extern const music_note_t music_fanfare[];        /* level-complete trigger */
 extern const uint8_t      music_fanfare_len;
-
-/* Begin playing a song. loop != 0 restarts at the end. */
-void music_start(const music_note_t *song, uint8_t len, uint8_t loop);
-
-/* Advance the player one frame. Call once per frame from a screen loop. */
-void music_tick(void);
-
-/* Silence and stop playback. */
-void music_stop(void);
 
 /* Play a song straight through, blocking, with its own vsync pacing.
  * Used for the short level-complete fanfare. */

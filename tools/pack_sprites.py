@@ -34,22 +34,31 @@ def main():
     ap.add_argument("--arena", default="0x6A00")
     ap.add_argument("--zx0", default=os.environ.get("ZX0", "/tmp/ZX0/src/zx0"))
     ap.add_argument("--incdir", default="include")
+    ap.add_argument("--drop", default="",
+                    help="comma-separated array names to leave out of the "
+                         "blob (generated but never read by the game)")
     args = ap.parse_args()
     arena = int(args.arena, 16) if args.arena.startswith("0x") else int(args.arena)
 
     arrays = []          # (name, nbytes)
     defines = []         # (name, value)
     blob = bytearray()
+    drop = {n for n in args.drop.split(",") if n}
     for s in SPRITES:
         txt = open(f"{args.incdir}/{s}.h").read()
         for name, val in DEF_RE.findall(txt):
             defines.append((name, val))
         for m in ARR_RE.finditer(txt):
             name = m.group(1)
+            if name in drop:
+                drop.discard(name)
+                continue
             data = [int(x, 16) for x in re.findall(r'0x([0-9A-Fa-f]{2})', m.group(2))]
             arrays.append((name, len(data), len(blob)))
             blob += bytes(data)
 
+    if drop:
+        raise SystemExit(f"--drop names not found: {sorted(drop)}")
     total = len(blob)
     binp, zxp = "/tmp/sprites_pack.bin", "/tmp/sprites_pack.zx0"
     open(binp, "wb").write(blob)

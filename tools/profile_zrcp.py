@@ -243,9 +243,9 @@ def main():
 
     print(f"\nLaunching ZEsarUX (ROM: {rom_path})...")
     emu = subprocess.Popen(
-        ["zesarux", "--vo", "null", "--ao", "null",
-         "--enable-remoteprotocol", "--machine", "48k",
-         "--noconfigfile", "--quickexit",
+        ["zesarux", "--noconfigfile",   # must be first (else ~/.zesaruxrc is rewritten)
+         "--vo", "null", "--ao", "null",
+         "--enable-remoteprotocol", "--machine", "48k", "--quickexit",
          "--romfile", rom_path, tap_path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

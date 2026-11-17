@@ -2,11 +2,10 @@
  * music.c — Frame-paced single-voice beeper melody player
  *
  * Renders the Channel A (lead) lines of the design-doc sea shanties on
- * the 48K beeper. Each music_tick() emits a short tone burst at the
+ * the 48K beeper. Each frame emits a short tone burst at the
  * current note's pitch, articulating notes with one silent frame at the
  * end so repeated pitches stay distinct. Pacing is one tick per frame,
- * so the caller must invoke music_tick() once per vsync from a static
- * screen loop. See music.h for scope/limitations.
+ * driven by music_play_blocking() with its own vsync pacing.
  */
 
 #include <stdint.h>
@@ -47,7 +46,6 @@ const uint8_t music_fanfare_len = sizeof(music_fanfare) / sizeof(music_fanfare[0
 static const music_note_t *m_song;
 static uint8_t m_len;
 static uint8_t m_idx;
-static uint8_t m_loop;
 static uint8_t m_active;
 static uint8_t m_rem;      /* frames remaining for current note */
 static uint8_t m_delay;    /* current note pitch */
@@ -73,33 +71,14 @@ static void load_note(void)
     }
 }
 
-void music_start(const music_note_t *song, uint8_t len, uint8_t loop)
-{
-    m_song   = song;
-    m_len    = len;
-    m_loop   = loop;
-    m_idx    = 0;
-    m_active = 1;
-    load_note();
-}
-
-void music_stop(void)
-{
-    m_active = 0;
-}
-
-void music_tick(void)
+static void music_tick(void)
 {
     if (!m_active) return;
 
     if (m_rem == 0) {
         if (++m_idx >= m_len) {
-            if (m_loop) {
-                m_idx = 0;
-            } else {
-                m_active = 0;
-                return;
-            }
+            m_active = 0;
+            return;
         }
         load_note();
     }
@@ -113,7 +92,11 @@ void music_tick(void)
 
 void music_play_blocking(const music_note_t *song, uint8_t len)
 {
-    music_start(song, len, 0);
+    m_song   = song;
+    m_len    = len;
+    m_idx    = 0;
+    m_active = 1;
+    load_note();
     while (m_active) {
         vsync_wait();
         music_tick();

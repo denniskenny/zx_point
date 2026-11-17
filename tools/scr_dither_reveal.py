@@ -6,8 +6,8 @@ and generates progressive reveal frames using Bayer 8x8 ordered
 dithering — same algorithm as gen_anglerfish.py.
 
 Usage:
-    python3 tools/scr_dither_reveal.py assets/angler_5.scr assets/goo
-      -> produces assets/goo_1.scr .. assets/goo_6.scr
+    python3 tools/scr_dither_reveal.py assets/angler_5.scr build/goo
+      -> produces build/goo_1.scr .. build/goo_6.scr
 """
 
 import os

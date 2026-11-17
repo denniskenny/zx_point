@@ -16,12 +16,6 @@ uint16_t scr_off(uint8_t x, uint8_t y)
            (x >> 3);
 }
 
-void plot(uint8_t *buf, uint8_t x, uint8_t y)
-{
-    if (y >= 192) return;
-    buf[scr_off(x, y)] ^= (0x80 >> (x & 7));
-}
-
 void set_attr_rect(uint8_t col, uint8_t row, uint8_t w, uint8_t h,
                    uint8_t attr)
 {
@@ -355,41 +349,6 @@ void clear_blit(int8_t col, uint8_t y, uint8_t w, uint8_t h)
         if (py >= 192) continue;
         off = scr_off(start_col << 3, py);
         memset(SCREEN + off, 0, draw_w);
-    }
-}
-
-/* --- Direct-write blit at pixel X with sub-byte shifting (C) --- */
-void write_blit_px(int16_t px, uint8_t y, const uint8_t *data,
-                   uint8_t w, uint8_t h)
-{
-    uint8_t shift, row, c;
-    int8_t base_col;
-
-    shift = (uint8_t)(px & 7);
-    base_col = (int8_t)(px >> 3);
-
-    if (shift == 0) {
-        write_blit(base_col, y, data, w, h);
-        return;
-    }
-
-    for (row = 0; row < h; row++) {
-        uint8_t py = y + row;
-        uint8_t carry = 0;
-        const uint8_t *src;
-        uint16_t off0;
-        if (py >= 192) continue;
-        src = data + (uint16_t)row * w;
-        off0 = scr_off(0, py);
-        for (c = 0; c <= w; c++) {
-            int8_t sc = base_col + (int8_t)c;
-            uint8_t src_byte = (c < w) ? src[c] : 0;
-            uint8_t val = (src_byte >> shift) | carry;
-            carry = (uint8_t)(src_byte << (8 - shift));
-            if (sc < 0) continue;
-            if ((uint8_t)sc >= 32) break;
-            SCREEN[off0 + (uint8_t)sc] = val;
-        }
     }
 }
 

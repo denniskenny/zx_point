@@ -32,17 +32,8 @@
 #include "../include/goo_data.h"
 #include "../include/entity_render.h"
 #include "../include/sprites_packed.h"
-
-/* --- Bubblefield public API (from src/bubblefield.c) --- */
-extern void init_bubbles(void);
-extern void bubbles_set_count(uint8_t count);
-extern void bubbles_erase_all(void);
-extern void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz);
-extern uint8_t sf_cull_y;
-extern uint8_t sf_cull_y_floor;
-
-/* --- Border colour (shared with depth.c and sound.c) --- */
-extern uint8_t border_val;
+#include "../include/bubblefield.h"
+#include "../include/grid.h"
 
 /* --- Bubble counts per depth (0-indexed by gy) --- */
 static const uint8_t depth_bubbles[3] = {
@@ -56,15 +47,19 @@ static uint8_t oxygen_drain_ctr;
 
 /* --- Bubblefield inertia (persists across frames) --- */
 static int8_t sv_x, sv_y, sv_z;
-static uint8_t dt_x, dt_y, dt_z;
-static uint8_t was_edge_x, was_edge_y, was_edge_z;
+static uint8_t dt_x, dt_z;
+static uint8_t was_edge_x, was_edge_z;
 
 /* --- Draw state: computed in logic phase, consumed next draw phase --- */
 static int8_t bubble_vx, bubble_vy, bubble_vz;
 
 /* --- Persistent state across game states --- */
 static uint8_t current_level;
-static uint8_t game_over_flag;   /* 0 = level complete, 1 = death, 2 = surfaced early */
+/* How the last dive ended (drives the summary / game-over screens) */
+#define OUTCOME_COMPLETE  0   /* surfaced with all relics */
+#define OUTCOME_DIED      1   /* killed or out of oxygen/health */
+#define OUTCOME_SURFACED  2   /* surfaced early: relics still missing */
+static uint8_t game_over_flag;
 static uint8_t anim_timer;
 static uint8_t key_debounce;
 
@@ -131,7 +126,7 @@ static game_state_t state_title_init(void)
 {
     current_level = 1;
     level.total_collected = 0;
-    game_over_flag = 0;
+    game_over_flag = OUTCOME_COMPLETE;
 
     screen_clear(0x07, 0);   /* white ink, black paper, black border */
 
@@ -259,7 +254,6 @@ static game_state_t state_intro_tick(void)
 #define LINTRO_BOAT_WL      28
 #define LINTRO_BOAT_W       (BOAT_WIDTH / 8)   /* bytes, from boat.zxp */
 #define LINTRO_BOAT_H       BOAT_HEIGHT
-#define LINTRO_SCROLL_PX    2     /* pixels per frame */
 #define LINTRO_BOB_FRAMES   50    /* 1 second at 50 fps */
 #define LINTRO_DIVER_X      (DIVER_X >> 3)  /* col 15 */
 #define LINTRO_BOAT_ATTR    0x2A  /* red ink, cyan paper */
@@ -278,7 +272,9 @@ static game_state_t state_intro_tick(void)
 static int16_t lintro_px;
 static uint8_t lintro_phase;
 static uint8_t lintro_timer;
-static uint8_t lintro_sea_phase;
+static uint8_t lintro_sea_phase;   /* sine wave phase (boat bob + sea line) */
+static uint8_t lintro_wave_ctr;    /* ticks since the last wave step */
+static uint8_t lintro_ticks;       /* free-running tick count (diver animation) */
 static uint8_t lintro_drawn;
 static int16_t lintro_prev_px;
 static uint8_t lintro_prev_y;
@@ -297,15 +293,15 @@ static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
 static uint8_t *lintro_sl_row[LINTRO_SL_ROWS];
 
 /* Precached shifted copies of the boat: (w+1) bytes/row, carry column at
- * right. Scroll step is 2px and px stays even, so only shifts 2/4/6 occur
- * (shift 0 uses boat_bitmap directly). Each variant is built once. */
+ * right, one per sub-byte shift 1..7 (shift 0 uses boat_bitmap directly).
+ * All seven are built when the intro starts, so any LINTRO_SCROLL_PX works. */
 #define LINTRO_BOAT_SW  (LINTRO_BOAT_W + 1)
 /* Lives in the GOO-death scratch buffer (0x6000, transient): the boat
  * intro and GOO death never overlap, and BSS has no room left under
  * $FF58. Rebuilt every intro since GOO death overwrites it. */
 #define LINTRO_BOAT_SX_SIZE  (LINTRO_BOAT_SW * LINTRO_BOAT_H)
 #define LINTRO_BOAT_SX(si)  ((uint8_t *)0x6000 + (uint16_t)(si) * LINTRO_BOAT_SX_SIZE)
-typedef char lintro_boat_sx_fits[(3u * LINTRO_BOAT_SX_SIZE <= 0x0900u) ? 1 : -1];
+typedef char lintro_boat_sx_fits[(7u * LINTRO_BOAT_SX_SIZE <= 0x0900u) ? 1 : -1];
 static uint8_t lintro_boat_have = 0;   /* bitmask of built variants */
 
 static const uint8_t *lintro_boat_data(uint8_t shift)
@@ -315,7 +311,7 @@ static const uint8_t *lintro_boat_data(uint8_t shift)
 
     if (!shift) return boat_bitmap;
 
-    si = (shift >> 1) - 1;             /* shifts 2,4,6 -> slots 0,1,2 */
+    si = shift - 1;                    /* shifts 1..7 -> slots 0..6 */
     if (lintro_boat_have & (1 << si)) return LINTRO_BOAT_SX(si);
 
     dst = LINTRO_BOAT_SX(si);
@@ -393,7 +389,6 @@ static game_state_t state_level_intro_init(void)
 {
     uint8_t i;
 
-    music_stop();   /* dive begins — gameplay owns the speaker (sonar) */
 
     lintro_saved_vsync = vsync_mode;
     vsync_mode = 0;
@@ -402,12 +397,13 @@ static game_state_t state_level_intro_init(void)
 
     lintro_px = -(int16_t)(LINTRO_BOAT_W * 8);
     lintro_boat_have = 0;               /* scratch may hold GOO frames */
-    lintro_boat_data(2);                /* prebuild shifted variants: ~3 frames */
-    lintro_boat_data(4);
-    lintro_boat_data(6);
+    for (i = 1; i < 8; i++)             /* prebuild all shifted variants */
+        lintro_boat_data(i);
     lintro_phase = LINTRO_SCROLL;
     lintro_timer = 0;
     lintro_sea_phase = 0;
+    lintro_wave_ctr = 0;
+    lintro_ticks = 0;
     lintro_drawn = 0;
     lintro_diver_drawn = 0;
     for (i = 0; i < 32; i++) lintro_sl_prev[i] = 255;
@@ -418,22 +414,15 @@ static game_state_t state_level_intro_init(void)
     return STATE_LEVEL_INTRO;
 }
 
-static game_state_t state_level_intro_tick(void)
+/* Advance the intro's phase state machine. Returns 1 when the intro is
+ * over (finished, or skipped with a key) and the game should start. */
+static uint8_t lintro_advance(void)
 {
-    uint8_t boat_y;
-    int16_t old_px;
-    int8_t  old_col, new_col;
-
-    vsync_wait();
-
     if (key_debounce) {
         if (!any_key_pressed()) key_debounce = 0;
     } else if (any_key_pressed()) {
-        vsync_mode = lintro_saved_vsync;
-        return STATE_GAME;
+        return 1;
     }
-
-    old_px = lintro_px;
 
     switch (lintro_phase) {
     case LINTRO_SCROLL:
@@ -465,54 +454,47 @@ static game_state_t state_level_intro_tick(void)
         break;
 
     case LINTRO_HOLD:
-        if (++lintro_timer >= LINTRO_HOLD_FRAMES) {
-            vsync_mode = lintro_saved_vsync;
-            return STATE_GAME;
-        }
+        if (++lintro_timer >= LINTRO_HOLD_FRAMES) return 1;
         break;
     }
+    return 0;
+}
 
-    boat_y = lintro_boat_y();
-
-    old_col = (int8_t)(old_px >> 3);
-    new_col = (int8_t)(lintro_px >> 3);
-
-    /* Delta-clear: erase exposed column on byte boundary crossing */
-    if (lintro_drawn) {
-        if (new_col != old_col && old_col >= 0) {
-            clear_blit(old_col, lintro_prev_y, 1, LINTRO_BOAT_H);
-            lintro_sl_prev[(uint8_t)old_col] = 255;
-        }
-        if (lintro_prev_y != boat_y) {
-            uint8_t prev_w = (lintro_prev_px & 7)
-                             ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W;
-            int8_t prev_col = (int8_t)(lintro_prev_px >> 3);
-            if (lintro_prev_y < boat_y)
-                clear_blit(prev_col, lintro_prev_y,
-                           prev_w, boat_y - lintro_prev_y);
-            else
-                clear_blit(prev_col,
-                           (uint8_t)(boat_y + LINTRO_BOAT_H),
-                           prev_w, lintro_prev_y - boat_y);
-        }
+/* Clear only the strips the boat has just uncovered: the char column it
+ * left on the left, and the rows above/below after a bob. */
+static void lintro_erase_delta(int8_t old_col, int8_t new_col, uint8_t boat_y)
+{
+    if (new_col != old_col && old_col >= 0) {
+        clear_blit(old_col, lintro_prev_y, 1, LINTRO_BOAT_H);
+        lintro_sl_prev[(uint8_t)old_col] = 255;
     }
+    if (lintro_prev_y != boat_y) {
+        uint8_t prev_w = (lintro_prev_px & 7) ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W;
+        int8_t prev_col = (int8_t)(lintro_prev_px >> 3);
+        if (lintro_prev_y < boat_y)
+            clear_blit(prev_col, lintro_prev_y, prev_w, boat_y - lintro_prev_y);
+        else
+            clear_blit(prev_col, (uint8_t)(boat_y + LINTRO_BOAT_H),
+                       prev_w, lintro_prev_y - boat_y);
+    }
+}
 
-    /* Sea line: XOR erase old + draw new */
-    lintro_sealine_tick();
+/* Blit the boat and keep its colour block in step with its position */
+static void lintro_draw_boat(int8_t old_col, int8_t new_col, uint8_t boat_y)
+{
+    uint8_t shift = (uint8_t)(lintro_px & 7);
 
-    /* Draw boat (precached shift -> byte blit) */
-    write_blit((int8_t)(lintro_px >> 3), boat_y,
-               lintro_boat_data((uint8_t)(lintro_px & 7)),
-               (lintro_px & 7) ? LINTRO_BOAT_SW : LINTRO_BOAT_W, LINTRO_BOAT_H);
+    write_blit(new_col, boat_y, lintro_boat_data(shift),
+               shift ? LINTRO_BOAT_SW : LINTRO_BOAT_W, LINTRO_BOAT_H);
 
-    /* Attrs: clear exposed column, set boat range — only when px moved
-     * (attr rect is position-based; boat_y bobs don't affect it) */
+    /* Column the boat left: back to background colour */
     if (new_col != old_col && old_col >= 0)
         set_attr_rect((uint8_t)old_col, LINTRO_ATTR_ROW,
                       1, LINTRO_ATTR_H, LINTRO_BG_ATTR);
+
     /* The boat moves right by at most one char column per 4 ticks, so after
      * the first full paint only the column entering on the right needs the
-     * boat colour (the column leaving on the left is cleared above). */
+     * boat colour. Bobbing doesn't change the (full bob range) attr rect. */
     if (!lintro_drawn) {
         lintro_set_attr(lintro_px, LINTRO_BOAT_ATTR);
     } else if (lintro_px != lintro_prev_px) {
@@ -522,46 +504,73 @@ static game_state_t state_level_intro_tick(void)
             set_attr_rect((uint8_t)r_new, LINTRO_ATTR_ROW, 1, LINTRO_ATTR_H,
                           LINTRO_BOAT_ATTR);
     }
+}
 
-    /* Diver: init Y on first DESCEND frame */
+/* Diver dropping from the boat (DESCEND/HOLD phases). XOR erase + draw
+ * back-to-back, and only when its Y or animation frame changes. */
+static void lintro_draw_diver(uint8_t boat_y)
+{
+    uint8_t cur_frame;
+
     if (lintro_phase == LINTRO_DESCEND && lintro_timer == 0) {
-        lintro_diver_y = boat_y + LINTRO_BOAT_H;
+        lintro_diver_y = boat_y + LINTRO_BOAT_H;   /* first DESCEND frame */
         lintro_timer = 1;
     }
+    if (lintro_phase != LINTRO_DESCEND && lintro_phase != LINTRO_HOLD)
+        return;
 
-    /* XOR diver: erase + draw back-to-back to minimise flicker */
-    if (lintro_phase == LINTRO_DESCEND || lintro_phase == LINTRO_HOLD) {
-        uint8_t cur_frame = (lintro_sea_phase >> 4) % diver_frame_count;
+    cur_frame = (lintro_ticks >> 4) % diver_frame_count;
+    xor16_x = DIVER_X;
+    xor16_attr = LINTRO_BG_ATTR;
 
-        xor16_x = DIVER_X;
-        xor16_attr = LINTRO_BG_ATTR;
-
-        if (lintro_diver_drawn &&
-            (lintro_diver_draw_y != lintro_diver_y ||
-             lintro_diver_frame != cur_frame)) {
-            xor16_y = lintro_diver_draw_y;
-            xor16_spr = sprites_get_frame(lintro_diver_frame);
-            xor_sprite_16();
-            lintro_diver_drawn = 0;
-        }
-
-        if (!lintro_diver_drawn) {
-            xor16_y = lintro_diver_y;
-            xor16_spr = sprites_get_frame(cur_frame);
-            xor_sprite_16();
-            lintro_diver_drawn = 1;
-            lintro_diver_draw_y = lintro_diver_y;
-            lintro_diver_frame = cur_frame;
-        }
-
-        sprites_diver_set_colour_at(LINTRO_DIVER_X,
-                                    lintro_diver_draw_y >> 3, 3, 0x28);
+    if (lintro_diver_drawn &&
+        (lintro_diver_draw_y != lintro_diver_y || lintro_diver_frame != cur_frame)) {
+        xor16_y = lintro_diver_draw_y;
+        xor16_spr = sprites_get_frame(lintro_diver_frame);
+        xor_sprite_16();
+        lintro_diver_drawn = 0;
     }
+
+    if (!lintro_diver_drawn) {
+        xor16_y = lintro_diver_y;
+        xor16_spr = sprites_get_frame(cur_frame);
+        xor_sprite_16();
+        lintro_diver_drawn = 1;
+        lintro_diver_draw_y = lintro_diver_y;
+        lintro_diver_frame = cur_frame;
+    }
+
+    sprites_diver_set_colour_at(LINTRO_DIVER_X, lintro_diver_draw_y >> 3, 3, 0x28);
+}
+
+static game_state_t state_level_intro_tick(void)
+{
+    uint8_t boat_y;
+    int8_t old_col, new_col;
+
+    vsync_wait();
+
+    old_col = (int8_t)(lintro_px >> 3);
+    if (lintro_advance()) {
+        vsync_mode = lintro_saved_vsync;
+        return STATE_GAME;
+    }
+    new_col = (int8_t)(lintro_px >> 3);
+    boat_y = lintro_boat_y();
+
+    if (lintro_drawn) lintro_erase_delta(old_col, new_col, boat_y);
+    lintro_sealine_tick();
+    lintro_draw_boat(old_col, new_col, boat_y);
+    lintro_draw_diver(boat_y);
 
     lintro_drawn = 1;
     lintro_prev_px = lintro_px;
     lintro_prev_y = boat_y;
-    lintro_sea_phase++;
+    lintro_ticks++;
+    if (++lintro_wave_ctr >= LINTRO_WAVE_FRAMES) {
+        lintro_wave_ctr = 0;
+        lintro_sea_phase++;
+    }
 
     return STATE_LEVEL_INTRO;
 }
@@ -575,13 +584,13 @@ static game_state_t state_game_init(void)
     vy = 0;
     vz = 0;
     sv_x = 0; sv_y = 0; sv_z = 0;
-    dt_x = 0; dt_y = 0; dt_z = 0;
-    was_edge_x = 0; was_edge_y = 0; was_edge_z = 0;
+    dt_x = 0; dt_z = 0;
+    was_edge_x = 0; was_edge_z = 0;
     bubble_vx = 0; bubble_vy = 0; bubble_vz = 0;
     frame = 0;
     oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
 
-    if (game_over_flag == 2) {
+    if (game_over_flag == OUTCOME_SURFACED) {
         /* Continuing after surfacing — keep position, replenish oxygen */
         player.oxygen = OXYGEN_MAX;
         player.sub_z = CUBE_SUB_Z - 1;
@@ -618,11 +627,196 @@ static game_state_t state_game_init(void)
     return STATE_GAME;
 }
 
+/* ------------------------------------------------------------------ */
+/* STATE_GAME helpers                                                  */
+/* ------------------------------------------------------------------ */
+
+/* Accelerate one horizontal axis: key k1 pushes in direction d1 (+1/-1),
+ * k2 in the opposite direction, both capped at +-SPEED. With neither
+ * pushing, friction steps the speed toward 0 every 8 frames. */
+static int8_t axis_accel(int8_t v, uint8_t k1, int8_t d1, uint8_t k2)
+{
+    if (k1 && (d1 > 0 ? v < SPEED : v > -SPEED)) return v + d1;
+    if (k2 && (d1 > 0 ? v > -SPEED : v < SPEED)) return v - d1;
+    if ((frame & 7) == 0) {
+        if (v > 0) return v - 1;
+        if (v < 0) return v + 1;
+    }
+    return v;
+}
+
+#if PLAYER_SPEED_DIV > 1
+/* Fractional speed divider: accumulate raw speed and emit up to
+ * max_steps whole steps of +-1 each time the accumulator passes div. */
+static int8_t frac_x, frac_y, frac_z;
+
+static int8_t frac_step(int8_t *frac, int8_t raw, int8_t div, uint8_t max_steps)
+{
+    int8_t v = 0;
+    *frac += raw;
+    while (max_steps--) {
+        if (*frac >= div)       { v++; *frac -= div; }
+        else if (*frac <= -div) { v--; *frac += div; }
+        else break;
+    }
+    return v;
+}
+#endif
+
+/* Bubble-field inertia: follow the key-driven speed while held, then
+ * coast down by 1 every BUBBLE_DRIFT_FRAMES once released. */
+static int8_t bubble_coast(int8_t sv, uint8_t held, int8_t raw, uint8_t *dt)
+{
+    if (held) { *dt = BUBBLE_DRIFT_FRAMES; return raw; }
+    if (sv != 0 && --*dt == 0) {
+        *dt = BUBBLE_DRIFT_FRAMES;
+        return (sv > 0) ? sv - 1 : sv + 1;
+    }
+    return sv;
+}
+
+/* World edge: reverse the bubble drift on the first frame at the edge,
+ * then hold it at 0 while the player stays there. */
+static int8_t edge_bounce(int8_t sv, uint8_t edge, uint8_t *was)
+{
+    if (edge) sv = *was ? 0 : -sv;
+    *was = edge;
+    return sv;
+}
+
+static uint8_t clamp_pred_y(int16_t ey)
+{
+    if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
+    if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
+    return (uint8_t)ey;
+}
+
+/* Draw phase, background: bubbles, sea floor, sea line, and the Y the
+ * entities sit at for the current depth. */
+static void game_draw_environment(void)
+{
+    uint8_t trans = depth_is_transitioning();
+    uint8_t at_bottom = (player.gy == GRID_D - 1);
+    uint8_t at_floor = at_bottom && !trans;
+    uint8_t show_sealine;
+    uint8_t sfy = 0;
+    int16_t sly_i;
+    uint16_t total_depth;
+
+    /* Sea line: pinned at world top (gy=0, sub_z=0).
+     * Not shown at the bottommost subcube. */
+    total_depth = (uint16_t)player.gy * CUBE_SUB_Z + player.sub_z;
+    sly_i = SEALINE_DEFAULT_Y -
+        (int16_t)(total_depth * SEALINE_DEFAULT_Y / CUBE_SUB_Z);
+    show_sealine = (sly_i >= 0 && !trans && !at_bottom);
+    sf_cull_y = show_sealine ? (uint8_t)(sly_i + 6) : 0;
+
+    /* Sea floor rises from the bottom of the view as the player sinks
+     * through the deepest cube. Bubbles are culled 4 px above it so 4x4
+     * close bubbles never overlap the floor. */
+    if (at_floor) {
+        sfy = VIEW_H - 1 -
+            (uint8_t)((uint16_t)player.sub_z * (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
+        sf_cull_y_floor = (sfy > 4) ? sfy - 4 : 1;
+    } else {
+        sf_cull_y_floor = 0;
+    }
+
+    update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
+
+    if (at_floor) seafloor_update(sfy);
+    else          seafloor_erase();
+
+    if (show_sealine) sealine_update((uint8_t)sly_i);
+    else              sealine_erase();
+
+    /* Entity Y anchor: top of a 32px sprite at the depth's feature */
+    if (player.gy == 0)
+        env_entity_y = clamp_pred_y((sly_i >= 0) ? (int16_t)sealine_get_clamp_y() : 20);
+    else if (player.gy == 1)
+        env_entity_y = DIVER_Y - 8;
+    else
+        env_entity_y = clamp_pred_y(at_floor ? (int16_t)sfy - 32 : VIEW_H - 40);
+}
+
+/* Logic phase, input: player velocity (vx/vy/vz) and the bubble drift
+ * used by the NEXT draw phase. */
+static void game_update_velocity(void)
+{
+    uint8_t k = scan_input();
+    uint8_t kq = k & INPUT_FWD;
+    uint8_t ka = k & INPUT_BACK;
+    uint8_t ko = k & INPUT_LEFT;
+    uint8_t kp = k & INPUT_RIGHT;
+    uint8_t kz = k & INPUT_DESC;
+    uint8_t kx = k & INPUT_ASC;
+    int8_t raw_vx, raw_vy, raw_vz;
+
+    vx = axis_accel(vx, ko, 1, kp);      /* O = +x, P = -x */
+    vz = axis_accel(vz, kq, -1, ka);     /* Q = -z, A = +z */
+
+    /* Vertical (Z = descend, X = ascend) — buoyancy model: diver floats up by default */
+    if (kz && vy > -SPEED) vy--;
+    else if (kx && vy < SPEED + 1) vy++;
+    else if (vy < SPEED) vy++;
+
+    raw_vx = vx; raw_vy = vy; raw_vz = vz;
+#if PLAYER_SPEED_DIV > 1
+    vx = frac_step(&frac_x, raw_vx, PLAYER_SPEED_DIV, 1);
+    vy = frac_step(&frac_y, raw_vy, PLAYER_DEPTH_DIV, 2);
+    vz = frac_step(&frac_z, raw_vz, PLAYER_SPEED_DIV, 1);
+#endif
+
+    /* Vertical bubbles always track velocity (buoyancy keeps them moving) */
+    sv_x = bubble_coast(sv_x, ko | kp, raw_vx, &dt_x);
+    sv_y = raw_vy;
+    sv_z = bubble_coast(sv_z, kq | ka, raw_vz, &dt_z);
+}
+
+/* Logic phase: stop / bounce the bubble drift at the world edges */
+static void game_world_edges(void)
+{
+    uint8_t edge_x = (player.gx == 0 && player.sub_x == 0) ||
+                     (player.gx == GRID_W - 1 && player.sub_x >= CUBE_SUB_XY - 1);
+    uint8_t edge_y = (player.gy == 0 && player.sub_z == 0) ||
+                     (player.gy == GRID_D - 1 && player.sub_z >= CUBE_SUB_Z - 1);
+    uint8_t edge_z = (player.gz == 0 && player.sub_y == 0) ||
+                     (player.gz == GRID_H - 1 && player.sub_y >= CUBE_SUB_XY - 1);
+
+    sv_x = edge_bounce(sv_x, edge_x, &was_edge_x);
+    if (edge_y) sv_y = 0;
+    sv_z = edge_bounce(sv_z, edge_z, &was_edge_z);
+}
+
+/* Logic phase: sonar pings for the closest same-depth object */
+static void game_sonar(void)
+{
+    uint8_t best_dist = 255, best_type = SONAR_TREASURE;
+    uint8_t i, d;
+
+    for (i = 0; i < level.treasure_count; i++) {
+        if (treasures[i].collected) continue;
+        if (treasures[i].gy != player.gy) continue;
+        d = grid_dist(player.gx, player.gz, treasures[i].gx, treasures[i].gz);
+        if (d < best_dist) { best_dist = d; best_type = SONAR_TREASURE; }
+    }
+
+    for (i = 0; i < predator_count; i++) {
+        if (!predators[i].active) continue;
+        if (predators[i].type != player.gy) continue;   /* type == depth */
+        d = grid_dist(player.gx, player.gz, predators[i].gx, predators[i].gz);
+        if (d < best_dist) {
+            best_dist = d;
+            best_type = (predators[i].type == PRED_GOO) ? SONAR_GOO : SONAR_PREDATOR;
+        }
+    }
+
+    sonar_update(best_dist, best_type);
+    beep_tick();
+}
+
 static game_state_t state_game_tick(void)
 {
-    uint8_t k;
-    uint8_t kq, ka, ko, kp, kz, kx;
-    uint8_t depth_changed;
     uint8_t damage;
 
     /* ================================================================
@@ -651,69 +845,7 @@ static game_state_t state_game_tick(void)
     vsync_wait();
 
     treasure_erase();
-
-    {
-        uint8_t trans = depth_is_transitioning();
-        uint8_t at_floor = (player.gy == GRID_D - 1 && !trans);
-        uint8_t at_bottom = (player.gy == GRID_D - 1);
-        int16_t sly_i;
-        uint16_t total_depth;
-
-        /* Sea line: pinned at world top (gy=0, sub_z=0).
-         * Not shown at the bottommost subcube. */
-        total_depth = (uint16_t)player.gy * CUBE_SUB_Z + player.sub_z;
-        sly_i = SEALINE_DEFAULT_Y -
-            (int16_t)(total_depth * SEALINE_DEFAULT_Y / CUBE_SUB_Z);
-
-        if (sly_i >= 0 && !trans && !at_bottom) {
-            sf_cull_y = (uint8_t)(sly_i + 6);
-        } else {
-            sf_cull_y = 0;
-        }
-
-        /* Sea floor cull: clip bubbles below the floor line.
-         * Offset by 4 so 4x4 close bubbles never overlap the floor. */
-        if (at_floor) {
-            uint8_t sfy = VIEW_H - 1 -
-                (uint8_t)((uint16_t)player.sub_z * (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
-            sf_cull_y_floor = (sfy > 4) ? sfy - 4 : 1;
-            update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
-            seafloor_update(sfy);
-        } else {
-            sf_cull_y_floor = 0;
-            update_and_draw_bubbles(bubble_vx, bubble_vy, bubble_vz);
-            seafloor_erase();
-        }
-
-        if (sly_i >= 0 && !trans && !at_bottom)
-            sealine_update((uint8_t)sly_i);
-        else
-            sealine_erase();
-
-        /* Entity Y anchor: top of a 32px sprite at the depth's feature */
-        if (player.gy == 0) {
-            uint8_t clamp = sealine_get_clamp_y();
-            int16_t ey = (sly_i >= 0) ? (int16_t)clamp : 20;
-            if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
-            if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
-            env_entity_y = (uint8_t)ey;
-        } else if (player.gy == 1) {
-            env_entity_y = DIVER_Y - 8;
-        } else {
-            int16_t ey;
-            if (at_floor) {
-                uint8_t sfy2 = VIEW_H - 1 -
-                    (uint8_t)((uint16_t)player.sub_z *
-                    (VIEW_H - 1 - DIVER_Y - 16) / CUBE_SUB_Z);
-                ey = (int16_t)sfy2 - 32;
-            } else {
-                ey = VIEW_H - 40;
-            }
-            if (ey < PRED_Y_MIN) ey = PRED_Y_MIN;
-            if (ey > PRED_Y_MAX) ey = PRED_Y_MAX;
-            env_entity_y = (uint8_t)ey;
-        }
-    }
+    game_draw_environment();
 
     predators_render(frame, !depth_is_transitioning());
     treasure_draw(frame);
@@ -729,108 +861,18 @@ static game_state_t state_game_tick(void)
     depth_indicator_draw();
 
     /* === LOGIC PHASE ============================================== */
-
-    /* --- Sample keyboard + joystick in one call --- */
-    k  = scan_input();
-    kq = k & INPUT_FWD;
-    ka = k & INPUT_BACK;
-    ko = k & INPUT_LEFT;
-    kp = k & INPUT_RIGHT;
-    kz = k & INPUT_DESC;
-    kx = k & INPUT_ASC;
-
-    /* Horizontal (O/P) — friction model */
-    if (ko && vx <  SPEED) vx++;
-    else if (kp && vx > -SPEED) vx--;
-    else if ((frame & 7) == 0) { if (vx > 0) vx--; else if (vx < 0) vx++; }
-
-    /* Forward/backward (Q/A) — friction model */
-    if (kq && vz > -SPEED) vz--;
-    else if (ka && vz <  SPEED) vz++;
-    else if ((frame & 7) == 0) { if (vz > 0) vz--; else if (vz < 0) vz++; }
-
-    /* Vertical (Z = descend, X = ascend) — buoyancy model: diver floats up by default */
-    if (kz && vy > -SPEED) vy--;
-    else if (kx && vy < SPEED + 1) vy++;
-    else if (vy < SPEED) vy++;
-
-    /* --- Apply player speed divisor (fractional accumulator) --- */
-    {
-        int8_t raw_vx = vx, raw_vy = vy, raw_vz = vz;
-#if PLAYER_SPEED_DIV > 1
-        {
-            static int8_t frac_x, frac_y, frac_z;
-
-            frac_x += raw_vx;
-            if (frac_x >= PLAYER_SPEED_DIV)       { vx =  1; frac_x -= PLAYER_SPEED_DIV; }
-            else if (frac_x <= -PLAYER_SPEED_DIV)  { vx = -1; frac_x += PLAYER_SPEED_DIV; }
-            else                                    { vx =  0; }
-
-            frac_y += raw_vy;
-            if (frac_y >= PLAYER_DEPTH_DIV) {
-                vy = 1; frac_y -= PLAYER_DEPTH_DIV;
-                if (frac_y >= PLAYER_DEPTH_DIV) { vy = 2; frac_y -= PLAYER_DEPTH_DIV; }
-            } else if (frac_y <= -PLAYER_DEPTH_DIV) {
-                vy = -1; frac_y += PLAYER_DEPTH_DIV;
-                if (frac_y <= -PLAYER_DEPTH_DIV) { vy = -2; frac_y += PLAYER_DEPTH_DIV; }
-            } else { vy = 0; }
-
-            frac_z += raw_vz;
-            if (frac_z >= PLAYER_SPEED_DIV)       { vz =  1; frac_z -= PLAYER_SPEED_DIV; }
-            else if (frac_z <= -PLAYER_SPEED_DIV)  { vz = -1; frac_z += PLAYER_SPEED_DIV; }
-            else                                    { vz =  0; }
-        }
-#endif
-
-        /* --- Bubblefield inertia: snap while key held, coast when released --- */
-        if (ko | kp) { sv_x = raw_vx; dt_x = BUBBLE_DRIFT_FRAMES; }
-        else if (sv_x != 0 && --dt_x == 0) {
-            dt_x = BUBBLE_DRIFT_FRAMES;
-            if (sv_x > 0) sv_x--; else sv_x++;
-        }
-
-        /* Vertical: always tracks velocity (buoyancy keeps it moving) */
-        sv_y = raw_vy;
-
-        if (kq | ka) { sv_z = raw_vz; dt_z = BUBBLE_DRIFT_FRAMES; }
-        else if (sv_z != 0 && --dt_z == 0) {
-            dt_z = BUBBLE_DRIFT_FRAMES;
-            if (sv_z > 0) sv_z--; else sv_z++;
-        }
-
-        bubble_vx = sv_x;
-        bubble_vy = sv_y;
-        bubble_vz = sv_z;
-    }
+    game_update_velocity();
 
     /* --- Player movement & cube traversal --- */
-    depth_changed = player_update(vx, vy, vz);
-
-    /* Position-based world edge detection (reliable every frame) */
-    {
-        uint8_t edge_x = (player.gx == 0 && player.sub_x == 0) ||
-                         (player.gx == GRID_W - 1 && player.sub_x >= CUBE_SUB_XY - 1);
-        uint8_t edge_y = (player.gy == 0 && player.sub_z == 0) ||
-                         (player.gy == GRID_D - 1 && player.sub_z >= CUBE_SUB_Z - 1);
-        uint8_t edge_z = (player.gz == 0 && player.sub_y == 0) ||
-                         (player.gz == GRID_H - 1 && player.sub_y >= CUBE_SUB_XY - 1);
-
-        if (edge_x && !was_edge_x) { sv_x = -sv_x; bubble_vx = sv_x; }
-        else if (edge_x) { sv_x = 0; bubble_vx = 0; }
-        was_edge_x = edge_x;
-
-        if (edge_y) { sv_y = 0; bubble_vy = 0; }
-        was_edge_y = edge_y;
-
-        if (edge_z && !was_edge_z) { sv_z = -sv_z; bubble_vz = sv_z; }
-        else if (edge_z) { sv_z = 0; bubble_vz = 0; }
-        was_edge_z = edge_z;
-    }
-    if (depth_changed) {
+    if (player_update(vx, vy, vz)) {
         bubbles_set_count(depth_bubbles[player.gy]);
         predators_hide_all();
         treasure_hide_all();
     }
+    game_world_edges();
+    bubble_vx = sv_x;
+    bubble_vy = sv_y;
+    bubble_vz = sv_z;
 
     /* --- Predator AI & movement --- */
     predators_update();
@@ -848,81 +890,38 @@ static game_state_t state_game_tick(void)
 
     /* --- Surfacing: level complete if relics done, status screen if not --- */
     if (player.gy == 0 && player.at_bound_y) {
-        if (level.arch_collected >= level.arch_count) {
-            game_over_flag = 0;
-            return STATE_SUMMARY;
-        } else {
-            game_over_flag = 2;
-            return STATE_SUMMARY;
-        }
+        game_over_flag = (level.arch_collected >= level.arch_count)
+                         ? OUTCOME_COMPLETE : OUTCOME_SURFACED;
+        return STATE_SUMMARY;
     }
 
     /* --- Predator collision check --- */
     damage = predators_check_collision();
     if (damage == 255) {
-        game_over_flag = 1;
+        game_over_flag = OUTCOME_DIED;
         return STATE_GOO_DEATH;
     }
     if (damage > 0 && player.invuln_timer == 0) {
-        if (player.health > damage)
-            player.health -= damage;
-        else
-            player.health = 0;
+        player.health = (player.health > damage) ? player.health - damage : 0;
         player.invuln_timer = INVULNERABLE_FRAMES;
         sfx_damage_jingle();
     }
 
     /* --- Check game over conditions --- */
     if (player.health == 0 || player.oxygen == 0) {
-        game_over_flag = 1;
+        game_over_flag = OUTCOME_DIED;
         return STATE_GAMEOVER;
     }
 
     /* --- Oxygen drain --- */
-    if (player.oxygen > 0) {
-        if (--oxygen_drain_ctr == 0) {
-            oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
-            player.oxygen--;
-        }
+    if (player.oxygen > 0 && --oxygen_drain_ctr == 0) {
+        oxygen_drain_ctr = OXYGEN_DRAIN_RATE;
+        player.oxygen--;
     }
 
     frame++;
 
-    /* --- Distance-based sonar ping (closest same-depth object) --- */
-    {
-        uint8_t best_dist = 255, best_type = SONAR_TREASURE;
-        uint8_t i, d;
-        int8_t dx, dz;
-
-        for (i = 0; i < level.treasure_count; i++) {
-            if (treasures[i].collected) continue;
-            if (treasures[i].gy != player.gy) continue;
-            dx = (int8_t)(player.gx - treasures[i].gx);
-            dz = (int8_t)(player.gz - treasures[i].gz);
-            if (dx < 0) dx = -dx;
-            if (dz < 0) dz = -dz;
-            d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
-            if (d < best_dist) { best_dist = d; best_type = SONAR_TREASURE; }
-        }
-
-        for (i = 0; i < predator_count; i++) {
-            if (!predators[i].active) continue;
-            if (predators[i].type != player.gy) continue;
-            dx = (int8_t)(player.gx - predators[i].gx);
-            dz = (int8_t)(player.gz - predators[i].gz);
-            if (dx < 0) dx = -dx;
-            if (dz < 0) dz = -dz;
-            d = (uint8_t)dx > (uint8_t)dz ? (uint8_t)dx : (uint8_t)dz;
-            if (d < best_dist) {
-                best_dist = d;
-                best_type = (predators[i].type == PRED_GOO) ?
-                    SONAR_GOO : SONAR_PREDATOR;
-            }
-        }
-
-        sonar_update(best_dist, best_type);
-    }
-    beep_tick();
+    game_sonar();
 
     return STATE_GAME;
 }
@@ -981,9 +980,9 @@ static game_state_t state_summary_init(void)
 
     screen_clear(0x07, 0);   /* white ink, black paper */
 
-    if (game_over_flag == 1) {
+    if (game_over_flag == OUTCOME_DIED) {
         print_at(11, 3, "Game Over");
-    } else if (game_over_flag == 2) {
+    } else if (game_over_flag == OUTCOME_SURFACED) {
         print_at(8, 3, "Surfaced Early");
     } else {
         print_at(9, 3, "Level Complete!");
@@ -1013,9 +1012,9 @@ static game_state_t state_summary_init(void)
     print_at(2, 14, "Total this dive: ");
     print_num(19, 14, level.collected_count);
 
-    if (game_over_flag == 1) {
+    if (game_over_flag == OUTCOME_DIED) {
         print_at(6, 18, "Press any key");
-    } else if (game_over_flag == 2) {
+    } else if (game_over_flag == OUTCOME_SURFACED) {
         print_at(3, 18, "Press any key to");
         print_at(7, 19, "dive again");
     } else {
@@ -1025,7 +1024,7 @@ static game_state_t state_summary_init(void)
 
     key_debounce = 1;
 
-    if (game_over_flag == 0)
+    if (game_over_flag == OUTCOME_COMPLETE)
         music_play_blocking(music_fanfare, music_fanfare_len);
     /* The 3-voice Tritone tune (Spanish dirge for game over, Lowlands shanty
      * for level-complete) is played blocking in the tick; nothing to start. */
@@ -1042,14 +1041,14 @@ static game_state_t state_summary_tick(void)
     }
 
     /* Game over: blocking 3-channel Tritone "Spanish Ladies" dirge. */
-    if (game_over_flag == 1) {
+    if (game_over_flag == OUTCOME_DIED) {
         spanish_play();                 /* loops the dirge until any key */
         return STATE_TITLE;
     }
 
     /* Level complete: blocking 3-channel Tritone "Lowlands Away" shanty. */
     lowlands_play();                    /* loops the shanty until any key */
-    if (game_over_flag == 2)
+    if (game_over_flag == OUTCOME_SURFACED)
         return STATE_LEVEL_INTRO;
     current_level++;
     return STATE_INTRO;

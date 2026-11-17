@@ -10,14 +10,14 @@
 /* Current depth layer (1, 2, or 3) */
 extern uint8_t current_depth;
 
+/* Border colour the beeper routines restore after each sound */
+extern uint8_t border_val;
+
 /* Set depth immediately (no animation) — fills ATTR + sets border */
 void depth_set(uint8_t layer);
 
 /* Get the resting attribute byte for a depth layer */
 uint8_t depth_get_attr(uint8_t layer);
-
-/* Get the resting border colour for a depth layer */
-uint8_t depth_get_border(uint8_t layer);
 
 /* Re-apply the current border colour (call after beeper sound) */
 void depth_restore_border(void);

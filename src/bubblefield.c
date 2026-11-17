@@ -4,7 +4,6 @@
  * Public API:
  *   init_bubbles()                         — seed all bubbles
  *   bubbles_set_count(n)                   — change active bubble count
- *   bubbles_erase_all()                    — erase visible bubbles from screen
  *   update_and_draw_bubbles(vx, vy, vz)    — one frame update (Z80 asm)
  */
 
@@ -12,15 +11,16 @@
 #include "../config/game_config.h"
 #include "../include/prng.h"
 #include "../include/gfx.h"
+#include "../include/bubblefield.h"
 
 /* --- Bubble type --- */
 typedef struct {
-    int16_t x, y, z;
-    uint8_t psx, psy;   /* previous screen coords (psy=255 = not visible) */
-    uint8_t pclose;      /* previous frame was 4x4 bubble */
+    int8_t  x, y;       /* -128..127, wrap naturally */
+    uint8_t z;          /* 1..255 (depth, larger = further) */
+    uint8_t *paddr;     /* screen byte it was last drawn at; NULL = not drawn */
+    uint8_t pmask;      /* far: pixel mask; close: (x & 7) * 2 mask-table offset */
+    uint8_t pclose;     /* last drawn as a 4x4 (close) bubble */
 } bubble_t;
-
-#define PSY_NONE 255
 
 static bubble_t bubbles[NUM_BUBBLES];
 static uint8_t bubble_count = NUM_BUBBLES;  /* active bubbles (can be < NUM_BUBBLES) */
@@ -43,29 +43,24 @@ static int16_t rand_xy(void)
     return (int16_t)(rng() & 0xFF) - XY_HALF;
 }
 
+/* Random depth in the visible range 1 .. BF_Z_CULL-1 */
 static int16_t rand_z(void)
 {
-    int16_t v = (int16_t)(rng() & 0xFF);
-    return v ? v : 1;
+    return 1 + (int16_t)(((rng() & 0xFF) * (uint16_t)(BF_Z_CULL - 1)) >> 8);
 }
 
-/* ------------------------------------------------------------------ */
-/* Erase a bubble at its previous screen position                      */
-/* ------------------------------------------------------------------ */
-static void erase_bubble(uint8_t *buf, uint8_t px, uint8_t py, uint8_t pclose)
+/* Erase a bubble at its last drawn position (asm helper below) */
+static void erase_bubble(bubble_t *b) __z88dk_fastcall __naked
 {
-    if (pclose) {
-        plot(buf, px + 1, py);
-        plot(buf, px + 2, py);
-        plot(buf, px,     py + 1);
-        plot(buf, px + 3, py + 1);
-        plot(buf, px,     py + 2);
-        plot(buf, px + 3, py + 2);
-        plot(buf, px + 1, py + 3);
-        plot(buf, px + 2, py + 3);
-    } else {
-        plot(buf, px, py);
-    }
+    (void)b;
+    __asm
+    push ix
+    push hl
+    pop  ix
+    call _sf_erase_cur
+    pop  ix
+    ret
+    __endasm;
 }
 
 /* ------------------------------------------------------------------ */
@@ -79,28 +74,11 @@ void bubbles_set_count(uint8_t count)
 
     /* Erase bubbles that are being deactivated */
     for (i = count; i < bubble_count; i++) {
-        if (bubbles[i].psy != PSY_NONE)
-            erase_bubble(SCREEN, bubbles[i].psx, bubbles[i].psy,
-                       bubbles[i].pclose);
-        bubbles[i].psy = PSY_NONE;
+        erase_bubble(&bubbles[i]);
+        bubbles[i].paddr = 0;
     }
 
     bubble_count = count;
-}
-
-/* ------------------------------------------------------------------ */
-/* Erase all currently visible bubbles from the screen                 */
-/* ------------------------------------------------------------------ */
-void bubbles_erase_all(void)
-{
-    uint8_t i;
-    for (i = 0; i < bubble_count; i++) {
-        if (bubbles[i].psy != PSY_NONE) {
-            erase_bubble(SCREEN, bubbles[i].psx, bubbles[i].psy,
-                       bubbles[i].pclose);
-            bubbles[i].psy = PSY_NONE;
-        }
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -110,10 +88,10 @@ void init_bubbles(void)
 {
     uint8_t i;
     for (i = 0; i < bubble_count; i++) {
-        bubbles[i].x = rand_xy();
-        bubbles[i].y = rand_xy();
-        bubbles[i].z = rand_z();
-        bubbles[i].psy = PSY_NONE;
+        bubbles[i].x = (int8_t)rand_xy();
+        bubbles[i].y = (int8_t)rand_xy();
+        bubbles[i].z = (uint8_t)rand_z();
+        bubbles[i].paddr = 0;
         bubbles[i].pclose = 0;
     }
 }
@@ -175,9 +153,11 @@ uint8_t sf_cull_y_floor;     /* bubbles with sy > this are culled (0 = no cullin
 /* Update positions and draw all active bubbles for one frame.         */
 /* Full Z80 assembly inner loop — replaces the C version for speed.    */
 /*                                                                     */
-/* Bubble struct layout (9 bytes, little-endian):                      */
-/*   +0,+1: x (int16_t)   +2,+3: y (int16_t)   +4,+5: z (int16_t)   */
-/*   +6: psx (uint8_t)    +7: psy (uint8_t)     +8: pclose (uint8_t)  */
+/* Bubble struct layout (7 bytes):                                     */
+/*   +0: x (int8)   +1: y (int8)   +2: z (uint8, 1..255)              */
+/*   +3,+4: paddr (screen address; high byte 0 = not drawn)           */
+/*   +5: pmask (far: pixel mask, close: mask-table offset)            */
+/*   +6: pclose (1 = drawn as 4x4 bubble)                              */
 /* ------------------------------------------------------------------ */
 void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
 {
@@ -210,162 +190,94 @@ void update_and_draw_bubbles(int8_t vx, int8_t vy, int8_t vz) __naked
     xor 1
     ld  (_sf_phase), a
 
+    ;; Split-frame: this frame handles bubbles phase, phase+2, phase+4...
+    ;; (the other half next frame), so each bubble updates at 25 fps.
+    ;; count = (bubble_count - phase + 1) / 2
+    ld  b, a                    ; B = phase
+    ld  a, (_bubble_count)
+    sub b
+    inc a
+    srl a
+    ret z
+    ld  (_sf_count), a
+
     ;; Save IX (callee-saved in SDCC convention)
     push ix
-    ld  a, (_bubble_count)
-    ld  (_sf_count), a
     ld  ix, _bubbles
+    ld  a, b
+    or  a
+    jr  z, _sf_loop
+    ld  de, 7                   ; phase 1: start at the second bubble
+    add ix, de
 
     ;; ================================================================
-    ;; Main loop — one iteration per bubble
+    ;; Main loop — one iteration per bubble handled this frame
     ;; IX points to current bubble_t throughout
-    ;; Split-frame: only project+draw bubbles whose parity matches sf_phase
     ;; ================================================================
 _sf_loop:
 
-    ;; ======== SPLIT-FRAME CHECK (first — off-phase bubbles skip entirely) ========
-    ;; Derive parity from loop counter: (count & 1) selects even/odd bubbles.
-    ld  a, (_sf_count)
-    and #1
-    ld  b, a
-    ld  a, (_sf_phase)
-    cp  b
-    jp  nz, _sf_next
-
     ;; ======== UPDATE POSITION ========
+    ;; x and y are signed bytes: 8-bit add wraps them within [-128, 127]
+    ;; for free. An axis with zero velocity is skipped entirely.
 
-    ;; x += sign_extend(vx)
-    ld  l, (ix+0)
-    ld  h, (ix+1)
-    ld  a, (_sf_vx)
-    ld  e, a
-    rla                         ; sign bit → carry
-    sbc a, a                    ; A = 0xFF if neg, 0x00 if pos
-    ld  d, a                    ; DE = sign-extended vx
-    add hl, de
-    ld  (ix+0), l
-    ld  (ix+1), h
-
-    ;; X wrap: keep x in [-128, +127]
-    ld  a, h
+    ld  a, (_sf_vx)             ; x += vx
     or  a
-    jr  z, _sf_xh0
-    inc a
-    jr  nz, _sf_x_done         ; h not 0x00 or 0xFF — skip
-    ;; h == 0xFF: x might be < -128
-    bit 7, l
-    jr  nz, _sf_x_done         ; l >= 0x80 → x in [-128,-1], OK
-    ld  (ix+1), 0               ; x < -128 → wrap up (+256)
-    jr  _sf_x_done
-_sf_xh0:
-    ;; h == 0x00: x might be >= 128
-    bit 7, l
-    jr  z, _sf_x_done          ; l < 0x80 → x in [0,127], OK
-    ld  (ix+1), 0xFF            ; x >= 128 → wrap down (-256)
+    jr  z, _sf_x_done
+    add a, (ix+0)
+    ld  (ix+0), a
 _sf_x_done:
 
-    ;; y += sign_extend(vy)
-    ld  l, (ix+2)
-    ld  h, (ix+3)
-    ld  a, (_sf_vy)
-    ld  e, a
-    rla
-    sbc a, a
-    ld  d, a
-    add hl, de
-    ld  (ix+2), l
-    ld  (ix+3), h
-
-    ;; Y wrap
-    ld  a, h
+    ld  a, (_sf_vy)             ; y += vy
     or  a
-    jr  z, _sf_yh0
-    inc a
-    jr  nz, _sf_y_done
-    bit 7, l
-    jr  nz, _sf_y_done
-    ld  (ix+3), 0
-    jr  _sf_y_done
-_sf_yh0:
-    bit 7, l
     jr  z, _sf_y_done
-    ld  (ix+3), 0xFF
+    add a, (ix+1)
+    ld  (ix+1), a
 _sf_y_done:
 
-    ;; z += sign_extend(vz)
-    ld  l, (ix+4)
-    ld  h, (ix+5)
+    ;; z += vz, z must stay in [1, BF_Z_CULL-1] (the visible depth range):
+    ;; moving past the far limit respawns close at 1, at/below 0 respawns
+    ;; at the far limit (new random x, y either way). Bubbles never sit in
+    ;; the invisible z >= BF_Z_CULL band.
     ld  a, (_sf_vz)
-    ld  e, a
-    rla
-    sbc a, a
-    ld  d, a
-    add hl, de
-    ld  (ix+4), l
-    ld  (ix+5), h
-
-    ;; ======== Z BOUNDS CHECK ========
-    ;; z must be in [1, 255]. HL = updated z.
-    ld  a, h
     or  a
-    jr  z, _sf_z_chk_lo
-    bit 7, a
-    jr  nz, _sf_z_low          ; h < 0 → z negative
-    ;; h > 0: z > 255 → respawn at Z_MIN
-    ld  (ix+4), 1
-    ld  (ix+5), 0
+    jr  z, _sf_z_ok             ; z unchanged → still in range
+    jp  m, _sf_z_dec
+    add a, (ix+2)
+    jr  c, _sf_z_high           ; carried past 255
+    cp  #BF_Z_CULL
+    jr  nc, _sf_z_high          ; past the far limit
+    ld  (ix+2), a
+    jr  _sf_z_ok
+_sf_z_dec:
+    add a, (ix+2)               ; adding a negative byte: carry = no borrow
+    jr  nc, _sf_z_low           ; went below 0
+    jr  z, _sf_z_low            ; landed on 0
+    ld  (ix+2), a
+    jr  _sf_z_ok
+_sf_z_high:
+    ld  (ix+2), 1
     jr  _sf_z_respawn
-_sf_z_chk_lo:
-    ld  a, l
-    or  a
-    jr  nz, _sf_z_ok           ; z in [1,255] → skip respawn
-    ;; z == 0 → treat as too low
 _sf_z_low:
-    ld  (ix+4), 255
-    ld  (ix+5), 0
+    ld  (ix+2), #(BF_Z_CULL - 1)
 _sf_z_respawn:
     call _rand_xy
     ld  (ix+0), l
-    ld  (ix+1), h
     call _rand_xy
-    ld  (ix+2), l
-    ld  (ix+3), h
+    ld  (ix+1), l
 
 _sf_z_ok:
 
     ;; ======== ERASE previous screen position ========
-    ld  d, (ix+7)               ; D = psy (also needed for plot coords)
-    ld  a, d
-    inc a                       ; psy was 255 (PSY_NONE)? → A wraps to 0
-    jr  z, _sf_no_erase
-    ld  a, (ix+8)               ; pclose
-    or  a
-    jr  nz, _sf_erase_bubble
-
-    ;; Far bubble: single pixel (XOR toggles off)
-    ld  e, (ix+6)               ; D already has psy
-    call _sf_plot
-    jr  _sf_no_erase
-
-_sf_erase_bubble:
-    ;; 4x4 bubble erase (XOR toggles off — same as plot)
-    ld  e, (ix+6)               ; D already has psy
-    call _sf_plot_bubble_fn
-
-_sf_no_erase:
-
-    ;; ======== LOD CULL — skip projection for distant bubbles ========
-    ld  a, (ix+4)
-    cp  #BF_Z_CULL
-    jp  nc, _sf_offscr
+    ;; Uses the address/mask stored when it was drawn: no address maths.
+    call _sf_erase_cur
 
     ;; ======== PROJECTION ========
 
     ;; Pre-screen: if |x| > z or |y| > z, bubble is off-screen.
     ;; Avoids the expensive multiply for ~40-60% of bubbles.
-    ld  c, (ix+4)               ; C = z (1-255)
+    ld  c, (ix+2)               ; C = z (1-255)
 
-    ld  a, (ix+0)               ; x low byte (signed)
+    ld  a, (ix+0)               ; x (signed byte)
     or  a
     jp  p, _sf_psx_pos
     neg
@@ -373,7 +285,7 @@ _sf_psx_pos:
     cp  c
     jp  nc, _sf_offscr          ; |x| >= z → off-screen
 
-    ld  a, (ix+2)               ; y low byte (signed)
+    ld  a, (ix+1)               ; y (signed byte)
     or  a
     jp  p, _sf_psy_pos
     neg
@@ -394,7 +306,7 @@ _sf_psy_pos:
     ld  (_sf_recip), hl
 
     ;; Project X: sx = (x * recip) >> 8 + 128
-    ld  a, (ix+0)               ; x low byte (signed, range [-128,127])
+    ld  a, (ix+0)               ; x (signed byte)
     call _sf_proj               ; HL = (x * recip) >> 8
     ld  de, 128
     add hl, de
@@ -410,7 +322,7 @@ _sf_psy_pos:
     ld  (_sf_sx), a
 
     ;; Project Y: sy = (y * recip) >> 8 + 96
-    ld  a, (ix+2)               ; y low byte (signed)
+    ld  a, (ix+1)               ; y (signed byte)
     call _sf_proj
     ld  de, 96
     add hl, de
@@ -437,131 +349,192 @@ _sf_no_cull:
 _sf_no_cull_f:
 
     ;; ======== PLOT ========
+    ;; L = sy, _sf_sx = sx.  Compute the screen address once, remember it
+    ;; (plus mask) in the bubble so next frame's erase is a plain XOR.
     ld  d, l                    ; D = sy
     ld  a, (_sf_sx)
     ld  e, a                    ; E = sx
-    ld  (ix+6), e               ; psx = sx
-    ld  (ix+7), d               ; psy = sy
+    call _sf_scr_addr           ; HL = screen address of (sx, sy)
+    ld  (ix+3), l
+    ld  (ix+4), h
 
     ;; Close bubble depth cue: z < 85 → draw 4x4 bubble
-    ld  a, (ix+4)
+    ld  a, (ix+2)
     cp  85
     jr  nc, _sf_far_plot
 
-    ld  (ix+8), 1               ; pclose = 1
-
-    ;; 4x4 bubble plot — row-at-a-time with precomputed masks
-    ;; E = sx, D = sy (already loaded above)
-    call _sf_plot_bubble_fn
-
+    ld  (ix+6), 1               ; pclose = 1
+    ld  a, e
+    and 0x07
+    add a, a                    ; mask-table offset = (x & 7) * 2
+    ld  (ix+5), a
+    ld  e, a
+    call _sf_xor_bubble         ; HL = addr, E = offset
     jr  _sf_next
 
 _sf_far_plot:
-    ld  (ix+8), 0               ; pclose = 0
-    ;; D = psy, E = psx — still valid from writes above
-    call _sf_plot
+    ld  (ix+6), 0               ; pclose = 0
+    push hl
+    ld  a, e
+    and 0x07
+    ld  e, a
+    ld  d, 0
+    ld  hl, _bit_mask
+    add hl, de
+    ld  a, (hl)                 ; A = pixel mask
+    pop hl
+    ld  (ix+5), a
+    xor (hl)
+    ld  (hl), a
     jr  _sf_next
 
 _sf_offscr:
-    ld  (ix+7), 255             ; psy = PSY_NONE
+    ld  (ix+4), 0               ; not drawn
 
 _sf_next:
-    ;; Advance IX to next bubble (+9 bytes)
-    ld  de, 9
+    ;; Advance IX two bubbles (+14 bytes): skip the other frame's half
+    ld  de, 14
     add ix, de
-    ld  a, (_sf_count)
-    dec a
-    ld  (_sf_count), a
+    ld  hl, _sf_count
+    dec (hl)
     jp  nz, _sf_loop
 
     pop ix
     ret
 
     ;; ================================================================
-    ;; _sf_plot — set pixel at (E, D) on screen
-    ;; Input:  E = x (0-255), D = y (0-191)
-    ;; Destroys: A, BC, HL.  Preserves: DE, IX.
+    ;; _sf_erase_cur — XOR-erase bubble IX at its stored address
+    ;; Destroys: A, BC, DE, HL.  Preserves: IX.
     ;; ================================================================
-_sf_plot:
-    ;; Screen address high byte: 0x40 | ((y>>3)&0x18) | (y&7)
-    ld  a, d
-    and 0xC0
-    rrca
-    rrca
-    rrca                        ; (y & 0xC0) >> 3
-    ld  b, a
-    ld  a, d
-    and 0x07
-    or  b
-    or  0x40
-    ld  h, a
-
-    ;; Screen address low byte: ((y&0x38)<<2) | (x>>3)
-    ld  a, d
-    and 0x38
-    rlca
-    rlca                        ; (y & 0x38) << 2
-    ld  b, a
-    ld  a, e
-    rrca
-    rrca
-    rrca
-    and 0x1F                    ; x >> 3
-    or  b
-    ld  l, a
-
-    ;; Bitmask: bit_mask[x & 7]
-    ld  a, e
-    and 0x07
-    ld  c, a
-    ld  b, 0
-    push hl
-    ld  hl, _bit_mask
-    add hl, bc
-    ld  a, (hl)
-    pop hl
-
-    ;; Toggle pixel (XOR preserves vignette)
+_sf_erase_cur:
+    ld  h, (ix+4)
+    ld  a, h
+    or  a
+    ret z                       ; not drawn
+    ld  l, (ix+3)
+    ld  a, (ix+6)
+    or  a
+    jr  nz, _sf_erase_close
+    ld  a, (ix+5)               ; far: single pixel
     xor (hl)
     ld  (hl), a
     ret
+_sf_erase_close:
+    ld  e, (ix+5)               ; close: mask-table offset
+    ;; fall through into _sf_xor_bubble
 
     ;; ================================================================
-    ;; Bubble row mask tables.
-    ;; Pattern:  .##. / #..# / #..# / .##.
-    ;; Indexed by (x & 7).  Two bytes per entry: [left_byte, right_byte].
-    ;; Bits are MSB-first (bit 7 = leftmost pixel).
+    ;; _sf_xor_bubble — XOR the 4x4 bubble at screen address HL
+    ;; Input: HL = top-left screen byte, E = (x & 7) * 2
+    ;; Pattern  .##. / #..# / #..# / .##.  — masks loaded once into
+    ;; B,C (row type A) and D,E (row type B). Both bytes of every row are
+    ;; XORed unconditionally (a 0 mask is a no-op; bubbles never reach
+    ;; column 31, so the right-hand byte stays on the same row).
+    ;; Destroys: A, BC, DE, HL.
     ;; ================================================================
+_sf_xor_bubble:
+    push hl
+    ld  d, 0
+    ld  hl, _bub_mask_a
+    add hl, de
+    ld  b, (hl)
+    inc hl
+    ld  c, (hl)
+    ld  hl, _bub_mask_b
+    add hl, de
+    ld  d, (hl)
+    inc hl
+    ld  e, (hl)
+    pop hl
 
-    ;; Row A (.##.):  pixels at x+1, x+2
-_bub_mask_a:
-    .db 0x60, 0x00   ;; x&7=0
-    .db 0x30, 0x00   ;; x&7=1
-    .db 0x18, 0x00   ;; x&7=2
-    .db 0x0C, 0x00   ;; x&7=3
-    .db 0x06, 0x00   ;; x&7=4
-    .db 0x03, 0x00   ;; x&7=5
-    .db 0x01, 0x80   ;; x&7=6
-    .db 0x00, 0xC0   ;; x&7=7
+    ld  a, (hl)                 ; row 0: .##.
+    xor b
+    ld  (hl), a
+    inc l
+    ld  a, (hl)
+    xor c
+    ld  (hl), a
+    dec l
+    inc h
+    ld  a, h
+    and 0x07
+    call z, _sf_row_fix
 
-    ;; Row B (#..#):  pixels at x+0, x+3
-_bub_mask_b:
-    .db 0x90, 0x00   ;; x&7=0
-    .db 0x48, 0x00   ;; x&7=1
-    .db 0x24, 0x00   ;; x&7=2
-    .db 0x12, 0x00   ;; x&7=3
-    .db 0x09, 0x00   ;; x&7=4
-    .db 0x04, 0x80   ;; x&7=5
-    .db 0x02, 0x40   ;; x&7=6
-    .db 0x01, 0x20   ;; x&7=7
+    ld  a, (hl)                 ; row 1: #..#
+    xor d
+    ld  (hl), a
+    inc l
+    ld  a, (hl)
+    xor e
+    ld  (hl), a
+    dec l
+    inc h
+    ld  a, h
+    and 0x07
+    call z, _sf_row_fix
 
-_sf_bub_off: .ds 1   ;; scratch: (x & 7) * 2
+    ld  a, (hl)                 ; row 2: #..#
+    xor d
+    ld  (hl), a
+    inc l
+    ld  a, (hl)
+    xor e
+    ld  (hl), a
+    dec l
+    inc h
+    ld  a, h
+    and 0x07
+    call z, _sf_row_fix
+
+    ld  a, (hl)                 ; row 3: .##.
+    xor b
+    ld  (hl), a
+    inc l
+    ld  a, (hl)
+    xor c
+    ld  (hl), a
+    ret
+
+    ;; HL crossed a character-row boundary after INC H: fix up (rare)
+_sf_row_fix:
+    ld  a, h
+    sub 8
+    ld  h, a
+    ld  a, l
+    add a, 32
+    ld  l, a
+    ret nc
+    ld  a, h
+    add a, 8
+    ld  h, a
+    ret
 
     ;; ================================================================
-    ;; _sf_scr_addr — compute screen address for pixel (E, D)
-    ;; Input:  E = x, D = y
-    ;; Output: HL = screen address
-    ;; Destroys: A, B
+    ;; Bubble row mask tables.  Indexed by (x & 7) * 2:
+    ;; [left_byte, right_byte], MSB = leftmost pixel.
+    ;; ================================================================
+_bub_mask_a:                    ;; Row A (.##.): pixels at x+1, x+2
+    .db 0x60, 0x00
+    .db 0x30, 0x00
+    .db 0x18, 0x00
+    .db 0x0C, 0x00
+    .db 0x06, 0x00
+    .db 0x03, 0x00
+    .db 0x01, 0x80
+    .db 0x00, 0xC0
+_bub_mask_b:                    ;; Row B (#..#): pixels at x+0, x+3
+    .db 0x90, 0x00
+    .db 0x48, 0x00
+    .db 0x24, 0x00
+    .db 0x12, 0x00
+    .db 0x09, 0x00
+    .db 0x04, 0x80
+    .db 0x02, 0x40
+    .db 0x01, 0x20
+
+    ;; ================================================================
+    ;; _sf_scr_addr — screen address for pixel (E, D)
+    ;; Input:  E = x, D = y.  Output: HL.  Destroys: A, B.  Keeps DE.
     ;; ================================================================
 _sf_scr_addr:
     ld  a, d
@@ -587,137 +560,6 @@ _sf_scr_addr:
     and 0x1F
     or  b
     ld  l, a
-    ret
-
-    ;; ================================================================
-    ;; _sf_next_row — advance HL to the next pixel row
-    ;; ================================================================
-_sf_next_row:
-    inc h
-    ld  a, h
-    and 0x07
-    ret nz
-    ld  a, h
-    sub 8
-    ld  h, a
-    ld  a, l
-    add a, 32
-    ld  l, a
-    ret nc
-    ld  a, h
-    add a, 8
-    ld  h, a
-    ret
-
-    ;; ================================================================
-    ;; _sf_plot_bubble_fn — draw 4x4 bubble at (E=x, D=y)
-    ;; Input:  E = x, D = y
-    ;; Destroys: A, B, C, D, E, H, L.  Preserves: IX.
-    ;; ================================================================
-_sf_plot_bubble_fn:
-    ld  a, e
-    and 0x07
-    add a, a
-    ld  (_sf_bub_off), a
-
-    call _sf_scr_addr           ; HL = screen addr for (x, y)
-
-    ;; --- Row 0: type A (.##.) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_a
-    add a, e
-    ld  e, a
-    jr  nc, _pb_r0n
-    inc d
-_pb_r0n:
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r0r
-    xor (hl)
-    ld  (hl), a
-_pb_r0r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r0d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_pb_r0d:
-    call _sf_next_row
-
-    ;; --- Row 1: type B (#..#) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_b
-    add a, e
-    ld  e, a
-    jr  nc, _pb_r1n
-    inc d
-_pb_r1n:
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r1r
-    xor (hl)
-    ld  (hl), a
-_pb_r1r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r1d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_pb_r1d:
-    call _sf_next_row
-
-    ;; --- Row 2: type B (#..#) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_b
-    add a, e
-    ld  e, a
-    jr  nc, _pb_r2n
-    inc d
-_pb_r2n:
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r2r
-    xor (hl)
-    ld  (hl), a
-_pb_r2r:
-    inc de
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r2d
-    inc l
-    xor (hl)
-    ld  (hl), a
-    dec l
-_pb_r2d:
-    call _sf_next_row
-
-    ;; --- Row 3: type A (.##.) ---
-    ld  a, (_sf_bub_off)
-    ld  de, _bub_mask_a
-    add a, e
-    ld  e, a
-    jr  nc, _pb_r3n
-    inc d
-_pb_r3n:
-    ld  a, (de)
-    or  a
-    jr  z, _pb_r3r
-    xor (hl)
-    ld  (hl), a
-_pb_r3r:
-    inc de
-    ld  a, (de)
-    or  a
-    ret z
-    inc l
-    xor (hl)
-    ld  (hl), a
     ret
 
     ;; ================================================================

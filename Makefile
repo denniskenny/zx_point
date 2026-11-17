@@ -73,9 +73,9 @@ include/log_item.h: assets/log.zxp tools/zxp2header.py
 include/boat.h: assets/ship3.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 1 --name boat
 
-# Minimap grid (32x32, blit source for the minimap background)
+# Minimap grid (one 32x32 frame, blit source for the minimap background)
 include/minimap_grid.h: assets/minimap_grid.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --name minimap_grid
+	$(ZXP2HEADER) $< $@ --frames 1 --name minimap_grid
 
 # Build the vendored ZX0 compressor. If the default macOS SDK fails to link
 # (seen with SDK 27.0: "ld: tapi error"), retry against each installed
@@ -90,10 +90,11 @@ tools/zx0/zx0: $(ZX0_SRCS) tools/zx0/zx0.h
 # GOO anglerfish: dither source → 4 reveal frames → crop + ZX0 compress
 GOO_SRC = assets/angler_5.scr
 include/goo_data.h: $(GOO_SRC) tools/scr_dither_reveal.py tools/scr_crop_zx0.py | $(ZX0)
-	$(PYTHON) tools/scr_dither_reveal.py $(GOO_SRC) assets/goo
+	@mkdir -p build
+	$(PYTHON) tools/scr_dither_reveal.py $(GOO_SRC) build/goo
 	$(SCR_CROP_ZX0) --mirror $@ $(ZX0) \
-		goo_frame1:assets/goo_1.scr goo_frame2:assets/goo_3.scr \
-		goo_frame3:assets/goo_5.scr goo_frame4:assets/goo_6.scr
+		goo_frame1:build/goo_1.scr goo_frame2:build/goo_3.scr \
+		goo_frame3:build/goo_5.scr goo_frame4:build/goo_6.scr
 
 # Title logo banner (256x112 .zxp → screen-layout pixels → ZX0 → C header)
 include/title_logo.h: assets/logo.zxp tools/zxp2zx0.py | $(ZX0)
@@ -111,8 +112,11 @@ SPRITE_HEADERS = include/diver.h include/ray.h include/shark.h \
     include/statue.h include/tablet.h include/altar.h include/firstaid.h \
     include/oxygen_tank.h include/map_item.h include/log_item.h include/boat.h \
     include/minimap_grid.h
-include/sprites_packed.h: $(SPRITE_HEADERS) tools/pack_sprites.py | $(ZX0)
-	$(PYTHON) tools/pack_sprites.py --arena 0x6A00 --zx0 $(ZX0)
+# Arrays the generators emit but the game never reads (kept out of the blob)
+SPRITE_DROP = ray_attr,shark_attr,statue_attr,tablet_attr,altar_attr,firstaid_attr
+SPRITE_DROP := $(SPRITE_DROP),oxygen_tank_attr,map_item_attr,log_item_attr,boat_attr
+include/sprites_packed.h: $(SPRITE_HEADERS) tools/pack_sprites.py Makefile | $(ZX0)
+	$(PYTHON) tools/pack_sprites.py --arena 0x6A00 --zx0 $(ZX0) --drop $(SPRITE_DROP)
 include/sprites_blob.h: include/sprites_packed.h
 
 GENERATED_HEADERS = $(SPRITE_HEADERS) \
@@ -125,13 +129,14 @@ GENERATED_HEADERS = $(SPRITE_HEADERS) \
 SRCS = src/main.c src/state.c src/bubblefield.c src/gfx.c src/input.c src/sound.c \
        src/music.c src/hw_detect.c src/depth.c src/sealine.c src/vsync.c src/sprites.c \
        src/player.c src/treasure.c src/hud.c src/minimap.c src/predators.c \
-       src/entity_render.c src/dzx0.c src/prng.c
+       src/entity_render.c src/dzx0.c src/prng.c src/grid.c
 
 HEADERS = config/game_config.h include/state.h include/game.h include/hw.h \
           include/gfx.h include/input.h include/sound.h include/music.h include/depth.h \
           include/sealine.h include/vsync.h include/sprites.h \
           include/player.h include/treasure.h include/hud.h include/minimap.h \
           include/predators.h include/entity_render.h include/dzx0.h include/prng.h \
+          include/grid.h include/bubblefield.h \
           include/goo_data.h $(GENERATED_HEADERS)
 
 # --- Tritone music -----------------------------------------------------------
@@ -172,7 +177,7 @@ assets/music/oro_linkable.asm: assets/music/oro\ se\ do\ bheatha.asm tools/gen_t
 # --- Top-level targets ---
 all: downship.tap
 
-.PHONY: all run clean assets test-legacy test test-preds
+.PHONY: all run clean assets test test-preds
 
 assets: $(GENERATED_HEADERS)
 
@@ -195,15 +200,11 @@ downship_test.tap: $(SRCS) $(HEADERS) $(MUSIC_LINKABLE)
 TEST_CFLAGS=+zx -vn -SO3 -zorg=32768 -startup=31 --opt-code-speed -compiler=sdcc -mz80 \
             --reserve-regs-iy --allow-unsafe-read
 
-tests/test_orientation.tap: tests/test_orientation.c config/game_config.h
-	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(TEST_CFLAGS) -o tests/test_orientation tests/test_orientation.c -create-app
+tests/test_orientation.tap: tests/test_orientation.c src/grid.c include/grid.h include/entity_render.h config/game_config.h
+	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(TEST_CFLAGS) -o tests/test_orientation tests/test_orientation.c src/grid.c -create-app
 
 test: tests/test_orientation.tap
 	$(PYTHON) tests/run_tests.py tests/test_orientation.tap
-
-# --- Legacy single-file build (regression reference) ---
-test-legacy: starfield.c include/diver.h
-	PATH=$(Z88DK)/bin:$$PATH Z88DK=$(Z88DK) ZCCCFG=$(ZCCCFG) $(ZCC) $(CFLAGS) $(USER_CFLAGS) -o downship starfield.c -lm -create-app
 
 # --- Clean ---
 clean:
@@ -211,4 +212,5 @@ clean:
 	rm -f downship_test downship_test.tap downship_test_CODE.bin downship_test_data_user.bin downship_test_code.tap
 	rm -f $(GENERATED_HEADERS)
 	rm -f $(MUSIC_LINKABLE) assets/music/*.o assets/music/lowlands.asm $(MUSIC_ENGINE)
+	rm -rf build
 	rm -f tests/test_orientation tests/test_orientation.tap tests/test_orientation_CODE.bin tests/test_orientation_data_user.bin tests/test_orientation_code.tap

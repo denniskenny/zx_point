@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include "../config/game_config.h"
 #include "../include/minimap.h"
+#include "../include/grid.h"
 #include "../include/gfx.h"
 #include "../include/player.h"
 #include "../include/treasure.h"
@@ -53,11 +54,6 @@ static void xor_plot(uint8_t x, uint8_t y)
 
 /* Map a grid coordinate (0..31) to minimap pixel offset.
  * Axes are mirrored so O=left, P=right, W=up, S=down on the map. */
-static uint8_t grid_to_mm(uint8_t g)
-{
-    return 31 - g;
-}
-
 /* Blit the minimap grid image from the asset header.
  * Overwrites the minimap area each frame, providing a clean
  * slate for XOR dots and restoring the grid lines. */
@@ -65,7 +61,7 @@ static void draw_grid(void)
 {
     uint8_t y;
     uint16_t off;
-    const uint8_t *src = minimap_grid_f1;
+    const uint8_t *src = minimap_grid_bitmap;   /* 32x32: 4 bytes x 32 rows */
 
     for (y = 0; y < MINIMAP_SIZE; y++) {
         off = scr_off(MM_PX, MM_PY + y);
@@ -138,8 +134,8 @@ void minimap_draw(void)
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
         if (treasures[i].gy != player.gy) continue;
-        px = MM_PX + grid_to_mm(treasures[i].gx);
-        py = MM_PY + grid_to_mm(treasures[i].gz);
+        px = MM_PX + GRID_TO_MINIMAP(treasures[i].gx);
+        py = MM_PY + GRID_TO_MINIMAP(treasures[i].gz);
         xor_plot(px, py);
         cell_col = MINIMAP_COL + 3 - (treasures[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (treasures[i].gz >> 3);
@@ -150,8 +146,8 @@ void minimap_draw(void)
     for (i = 0; i < predator_count; i++) {
         if (!predators[i].active) continue;
         if (predators[i].type != player.gy) continue;
-        px = MM_PX + grid_to_mm(predators[i].gx);
-        py = MM_PY + grid_to_mm(predators[i].gz);
+        px = MM_PX + GRID_TO_MINIMAP(predators[i].gx);
+        py = MM_PY + GRID_TO_MINIMAP(predators[i].gz);
         xor_plot(px, py);
         cell_col = MINIMAP_COL + 3 - (predators[i].gx >> 3);
         cell_row = MINIMAP_ROW + 3 - (predators[i].gz >> 3);
@@ -162,8 +158,8 @@ void minimap_draw(void)
     }
 
     /* --- Draw player dot (XOR, yellow, 2x2 pixels, centred) --- */
-    px = MM_PX + grid_to_mm(player.gx);
-    py = MM_PY + grid_to_mm(player.gz);
+    px = MM_PX + GRID_TO_MINIMAP(player.gx);
+    py = MM_PY + GRID_TO_MINIMAP(player.gz);
     xor_plot(px, py);
     xor_plot(px + 1, py);
     xor_plot(px, py + 1);

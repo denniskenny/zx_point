@@ -7,6 +7,7 @@
  */
 
 #include <stdint.h>
+#include "../include/grid.h"
 #include "../config/game_config.h"
 #include "../include/prng.h"
 #include "../include/treasure.h"
@@ -112,18 +113,13 @@ void treasure_spawn(uint8_t level_num, uint8_t count)
 void treasure_check_collection(void)
 {
     uint8_t i;
-    int8_t dx, dz;
 
     for (i = 0; i < level.treasure_count; i++) {
         if (treasures[i].collected) continue;
         if (treasures[i].gy != player.gy) continue;
 
-        dx = (int8_t)(player.gx - treasures[i].gx);
-        dz = (int8_t)(player.gz - treasures[i].gz);
-        if (dx < 0) dx = -dx;
-        if (dz < 0) dz = -dz;
-
-        if (dx < CONTACT_DISTANCE && dz < CONTACT_DISTANCE) {
+        if (grid_dist(player.gx, player.gz, treasures[i].gx, treasures[i].gz)
+                < CONTACT_DISTANCE) {
             treasures[i].collected = 1;
             level.collected_count++;
             level.total_collected++;

@@ -27,7 +27,7 @@ ZRCP_HOST = "localhost"
 ZRCP_PORT = 10000
 RESULTS_ADDR = 0xD000
 SENTINEL = 0xAA
-MAX_WAIT = 10  # seconds
+MAX_WAIT = 20  # seconds
 
 
 TEST_NAMES = {
@@ -144,11 +144,13 @@ def main():
 
     cmd = [
         zesarux_bin,
+        "--noconfigfile",   # must be FIRST or ZEsarUX ignores it and
+                            # rewrites ~/.zesaruxrc on exit
         "--vo", "null",
         "--ao", "null",
         "--enable-remoteprotocol",
         "--machine", "48k",
-        "--noconfigfile",
+        "--fastautoload",   # load the tape instantly (real-speed load > MAX_WAIT)
         "--romfile", rom,
         tap_file,
     ]

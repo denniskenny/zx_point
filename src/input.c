@@ -4,6 +4,7 @@
  * Extracted from bubblefield.c.
  */
 
+#include "../config/game_config.h"
 #include "../include/input.h"
 #include "../include/hw.h"
 
@@ -24,26 +25,26 @@ uint8_t scan_input(void) __naked
     __asm
 
     ld  d, #0               ; D accumulates result
-    ld  c, #0xFE            ; all keyboard ports share low byte 0xFE
+    ld  c, #(KEY_QWERT & 0xFF) ; all keyboard ports share low byte 0xFE
 
-    ;; KEY_QWERT (0xFBFE) — Q is bit 0 → INPUT_FWD
-    ld  b, #0xFB
+    ;; Q-T half-row: Q is bit 0 → INPUT_FWD
+    ld  b, #(KEY_QWERT >> 8)
     in  a, (c)
     bit 0, a
     jr  nz, _si_no_q
     set 0, d
 _si_no_q:
 
-    ;; KEY_ASDFG (0xFDFE) — A is bit 0 → INPUT_BACK
-    ld  b, #0xFD
+    ;; A-G half-row: A is bit 0 → INPUT_BACK
+    ld  b, #(KEY_ASDFG >> 8)
     in  a, (c)
     bit 0, a
     jr  nz, _si_no_a
     set 1, d
 _si_no_a:
 
-    ;; KEY_POIUY (0xDFFE) — P is bit 0 → INPUT_RIGHT, O is bit 1 → INPUT_LEFT
-    ld  b, #0xDF
+    ;; P-Y half-row: P is bit 0 → INPUT_RIGHT, O is bit 1 → INPUT_LEFT
+    ld  b, #(KEY_POIUY >> 8)
     in  a, (c)
     bit 0, a
     jr  nz, _si_no_p
@@ -54,8 +55,8 @@ _si_no_p:
     set 2, d
 _si_no_o:
 
-    ;; KEY_SHZXCV (0xFEFE) — Z is bit 1 → INPUT_DESC, X is bit 2 → INPUT_ASC
-    ld  b, #0xFE
+    ;; Shift-V half-row: Z is bit 1 → INPUT_DESC, X is bit 2 → INPUT_ASC
+    ld  b, #(KEY_SHZXCV >> 8)
     in  a, (c)
     bit 1, a
     jr  nz, _si_no_z
@@ -66,12 +67,12 @@ _si_no_z:
     set 5, d
 _si_no_x:
 
-    ;; Kempston (0x001F) — R=0 L=1 D=2 U=3 Fire=4 Fire2=5
+    ;; Kempston port — R=0 L=1 D=2 U=3 Fire=4 Fire2=5
     ld  a, (_has_kempston)
     or  a
     jr  z, _si_done
-    ld  b, #0x00
-    ld  c, #0x1F
+    ld  b, #(KEMP_PORT >> 8)
+    ld  c, #(KEMP_PORT & 0xFF)
     in  a, (c)
     bit 3, a
     jr  z, _si_no_ju

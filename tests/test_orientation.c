@@ -6,7 +6,7 @@
  * to a fixed RAM address so the runner script can read them
  * over ZRCP.
  *
- * Build:  zcc +zx ... -o tests/test_orientation tests/test_orientation.c
+ * Build:  make test  (links src/grid.c, the real code under test)
  * Results at 0xD000:
  *   byte 0  = total test count
  *   byte 1  = pass count
@@ -17,66 +17,28 @@
 #include <stdint.h>
 #include "../config/game_config.h"
 
-#define SCALE_32    0
-#define SCALE_16    1
-#define SCALE_8     2
-#define SCALE_4     3
-#define SCALE_NONE  0xFF
-
 #define RESULTS ((volatile uint8_t *)0xD000)
 
-/* ---- Functions under test (mirrored from game sources) ---- */
+/* ---- Functions under test come from the game itself (src/grid.c) ---- */
+#include "../include/grid.h"
+#include "../include/entity_render.h"
 
-static uint8_t grid_to_mm(uint8_t g)
-{
-    return 31 - g;
-}
-
-static uint8_t t_entity_z_to_scale(uint8_t z_dist)
-{
-    if (z_dist <= 1) return SCALE_32;
-    if (z_dist == 2) return SCALE_16;
-    if (z_dist == 3) return SCALE_8;
-    if (z_dist == 4) return SCALE_4;
-    return SCALE_NONE;
-}
-
-static uint8_t t_entity_screen_x(int16_t dx_sub)
-{
-    int16_t sx = (DIVER_X - 8) - (dx_sub * 3 / 4);
-    if (sx < PRED_X_MIN) sx = PRED_X_MIN;
-    if (sx > PRED_X_MAX) sx = PRED_X_MAX;
-    return (uint8_t)sx & 0xF8;
-}
-
-/* Minimal player movement (from player.c) */
 typedef struct {
     uint8_t gx, gz;
     int16_t sub_x, sub_y;
 } tplayer_t;
 
+/* Same axis conventions as player_update() in src/player.c */
 static void move_x(tplayer_t *p, int8_t vx)
 {
     p->sub_x += vx;
-    if (p->sub_x >= CUBE_SUB_XY) {
-        p->sub_x -= CUBE_SUB_XY;
-        if (p->gx < GRID_W - 1) p->gx++;
-    } else if (p->sub_x < 0) {
-        p->sub_x += CUBE_SUB_XY;
-        if (p->gx > 0) p->gx--;
-    }
+    grid_cube_step(&p->sub_x, &p->gx, GRID_W - 1, CUBE_SUB_XY);
 }
 
 static void move_z(tplayer_t *p, int8_t vz)
 {
     p->sub_y -= vz;
-    if (p->sub_y >= CUBE_SUB_XY) {
-        p->sub_y -= CUBE_SUB_XY;
-        if (p->gz < GRID_H - 1) p->gz++;
-    } else if (p->sub_y < 0) {
-        p->sub_y += CUBE_SUB_XY;
-        if (p->gz > 0) p->gz--;
-    }
+    grid_cube_step(&p->sub_y, &p->gz, GRID_H - 1, CUBE_SUB_XY);
 }
 
 /* ---- Test harness ---- */
@@ -132,61 +94,59 @@ void main(void)
     /* ============================================================
      * 5. Minimap: higher gx → lower pixel (further LEFT)
      * ============================================================ */
-    check(grid_to_mm(20) < grid_to_mm(10));
+    check(GRID_TO_MINIMAP(20) < GRID_TO_MINIMAP(10));
 
     /* ============================================================
      * 6. Minimap: higher gz → lower pixel (further UP / north)
      * ============================================================ */
-    check(grid_to_mm(20) < grid_to_mm(10));
+    check(GRID_TO_MINIMAP(20) < GRID_TO_MINIMAP(10));
 
     /* ============================================================
      * 7. Screen: entity with higher gx (west) → left on screen
      *    dx_sub > 0 when entity.gx > player.gx
      * ============================================================ */
-    sx_west = t_entity_screen_x( 4 * CUBE_SUB_XY);  /* entity west */
-    sx_east = t_entity_screen_x(-4 * CUBE_SUB_XY);  /* entity east */
+    sx_west = entity_screen_x( 4 * CUBE_SUB_XY);  /* entity west */
+    sx_east = entity_screen_x(-4 * CUBE_SUB_XY);  /* entity east */
     check(sx_west < sx_east);
 
     /* ============================================================
      * 8. Screen X and minimap X agree: entity west of player
      *    appears LEFT on both screen and minimap
      * ============================================================ */
-    mm_west = grid_to_mm(20);  /* entity gx=20 */
-    mm_east = grid_to_mm(12);  /* player gx=16, entity gx=12 */
+    mm_west = GRID_TO_MINIMAP(20);  /* entity gx=20 */
+    mm_east = GRID_TO_MINIMAP(12);  /* player gx=16, entity gx=12 */
     check(sx_west < sx_east && mm_west < mm_east);
 
     /* ============================================================
      * 9. Z scale: close (|dz|=0) → SCALE_32 (largest)
      * ============================================================ */
-    check(t_entity_z_to_scale(0) == SCALE_32);
+    check(entity_z_to_scale(0) == SCALE_32);
 
     /* ============================================================
      * 10. Z scale: far (|dz|=4) → SCALE_4 (smallest)
      * ============================================================ */
-    check(t_entity_z_to_scale(4) == SCALE_4);
+    check(entity_z_to_scale(4) == SCALE_4);
 
     /* ============================================================
      * 11. Z scale: monotonically increasing scale index with
      *     distance (bigger index = smaller sprite)
      * ============================================================ */
-    check(t_entity_z_to_scale(1) < t_entity_z_to_scale(2) &&
-          t_entity_z_to_scale(2) < t_entity_z_to_scale(3) &&
-          t_entity_z_to_scale(3) < t_entity_z_to_scale(4));
+    check(entity_z_to_scale(1) < entity_z_to_scale(2) &&
+          entity_z_to_scale(2) < entity_z_to_scale(3) &&
+          entity_z_to_scale(3) < entity_z_to_scale(4));
 
     /* ============================================================
      * 12. Z scale: beyond max range → SCALE_NONE
      * ============================================================ */
-    check(t_entity_z_to_scale(5) == SCALE_NONE);
+    check(entity_z_to_scale(5) == SCALE_NONE);
 
     /* ============================================================
      * 13. Shark pursuit X: player.gx > shark.gx → gdx = +1
      *     (shark gx increases to chase west toward player)
      * ============================================================ */
     {
-        int8_t gdx = 0;
-        uint8_t shark_gx = 10, player_gx = 20;
-        if (player_gx > shark_gx) gdx = 1;
-        else if (player_gx < shark_gx) gdx = -1;
+        int8_t gdx = -1;
+        grid_steer(&gdx, 10, 20);   /* shark at 10, player at 20 */
         check(gdx == 1);
     }
 
@@ -195,10 +155,8 @@ void main(void)
      *     (shark gz increases to chase north toward player)
      * ============================================================ */
     {
-        int8_t gdz = 0;
-        uint8_t shark_gz = 10, player_gz = 20;
-        if (player_gz > shark_gz) gdz = 1;
-        else if (player_gz < shark_gz) gdz = -1;
+        int8_t gdz = -1;
+        grid_steer(&gdz, 10, 20);   /* shark at 10, player at 20 */
         check(gdz == 1);
     }
 
@@ -213,11 +171,11 @@ void main(void)
         uint8_t shark_gx = 10, player_gx = 16;
 
         dx_sub = (int16_t)(shark_gx - player_gx) * CUBE_SUB_XY;
-        before_sx = t_entity_screen_x(dx_sub);
+        before_sx = entity_screen_x(dx_sub);
 
         shark_gx++;  /* gdx = +1 step */
         dx_sub = (int16_t)(shark_gx - player_gx) * CUBE_SUB_XY;
-        after_sx = t_entity_screen_x(dx_sub);
+        after_sx = entity_screen_x(dx_sub);
 
         /* shark gx increased (west) → screen sx should decrease (left) */
         check(after_sx <= before_sx);

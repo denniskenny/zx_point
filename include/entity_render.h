@@ -37,6 +37,7 @@ uint8_t entity_pool_draw(entity_pool_t *pool, uint8_t sx, uint8_t sy,
 
 void entity_pool_cleanup_attrs(entity_pool_t *pool);
 
+/* Pure layout maths, implemented in grid.c (shared with the unit test) */
 uint8_t entity_z_to_scale(uint8_t z_dist);
 uint8_t entity_screen_x(int16_t dx_sub);
 

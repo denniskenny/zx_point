@@ -27,7 +27,7 @@ const int8_t sine_tab[SINE_LEN] = {
 
 /* --- Sea line state --- */
 static uint8_t sl_phase;        /* animation phase (0..SINE_LEN-1) */
-static uint8_t sl_prev_y[32];   /* previous y per 8-pixel column (for erase) */
+static uint8_t *sl_prev[32];    /* screen byte XORed per 8-pixel column; NULL = none */
 static uint8_t sl_base_y;       /* current base y */
 static uint8_t sl_visible;      /* 1 if line is on screen */
 static uint8_t sl_drawn;        /* 1 if pixels are on screen to erase */
@@ -40,7 +40,7 @@ void sealine_init(void)
     sl_visible = 0;
     sl_drawn = 0;
     for (i = 0; i < 32; i++)
-        sl_prev_y[i] = 255;
+        sl_prev[i] = 0;
 }
 
 void sealine_erase(void)
@@ -49,16 +49,92 @@ void sealine_erase(void)
     if (!sl_drawn) return;
 
     for (col = 0; col < 32; col++) {
-        if (sl_prev_y[col] < 192)
-            SCREEN[scr_off(col << 3, sl_prev_y[col])] ^= 0xFF;
-        sl_prev_y[col] = 255;
+        if (sl_prev[col]) *sl_prev[col] ^= 0xFF;
+        sl_prev[col] = 0;
     }
     sl_drawn = 0;
 }
 
+/* Screen row start for base_y-6 .. base_y+6 (0 = off screen); set per frame */
+static uint8_t *sl_row[13];
+
+/* Per-column erase + draw, in asm (the C loop cost ~1000 T per column).
+ * For each column: addr = sl_row[6 + sine_tab[(col + sl_phase) & 31]] + col
+ * (0 if the row is off screen). If it differs from sl_prev[col], XOR the
+ * old byte off, XOR the new one on, and remember it. */
+static void sealine_cols(void) __naked
+{
+    __asm
+    push ix
+    ld  ix, _sl_prev            ; IX -> sl_prev[col] (2 bytes per column)
+    ld  c, 0                    ; C = col
+_slc_loop:
+    ;; A = 6 + sine_tab[(col + phase) & 31]
+    ld  a, (_sl_phase)
+    add a, c
+    and #31
+    ld  e, a
+    ld  d, #0
+    ld  hl, _sine_tab
+    add hl, de
+    ld  a, (hl)
+    add a, #6                   ; row index 0..12
+    ;; HL = sl_row[A]
+    add a, a
+    ld  e, a
+    ld  hl, _sl_row
+    add hl, de
+    ld  e, (hl)
+    inc hl
+    ld  d, (hl)                 ; DE = row start (0 = off screen)
+    ld  a, d
+    or  a
+    jr  z, _slc_have            ; off screen: DE = 0
+    ld  a, e
+    add a, c
+    ld  e, a                    ; + col (stays within the 32-byte row)
+_slc_have:
+    ;; compare with previous address
+    ld  l, 0 (ix)
+    ld  h, 1 (ix)
+    ld  a, l
+    cp  e
+    jr  nz, _slc_change
+    ld  a, h
+    cp  d
+    jr  z, _slc_next            ; unchanged
+_slc_change:
+    ld  a, h                    ; erase old (if any)
+    or  a
+    jr  z, _slc_noold
+    ld  a, (hl)
+    cpl
+    ld  (hl), a
+_slc_noold:
+    ld  a, d                    ; draw new (if any)
+    or  a
+    jr  z, _slc_nonew
+    ld  a, (de)
+    cpl
+    ld  (de), a
+_slc_nonew:
+    ld  0 (ix), e
+    ld  1 (ix), d
+_slc_next:
+    inc ix
+    inc ix
+    inc c
+    ld  a, c
+    cp  #32
+    jr  nz, _slc_loop
+    pop ix
+    ret
+    __endasm;
+}
+
 void sealine_update(uint8_t base_y)
 {
-    uint8_t col, idx;
+    uint8_t i;
     int16_t py;
 
     sl_base_y = base_y;
@@ -72,45 +148,22 @@ void sealine_update(uint8_t base_y)
 
     sl_visible = 1;
 
-    /* Erase previous frame, draw new sinewave */
-    for (col = 0; col < 32; col++) {
-        idx = (col + sl_phase) & (SINE_LEN - 1);
-        py = (int16_t)base_y + sine_tab[idx];
-        if (py < 0 || py >= 192) py = 255;   /* offscreen sentinel */
-
-        if (sl_prev_y[col] == (uint8_t)py) continue;  /* unchanged */
-
-        if (sl_prev_y[col] < 192)
-            SCREEN[scr_off(col << 3, sl_prev_y[col])] ^= 0xFF;
-
-        if (py != 255)
-            SCREEN[scr_off(col << 3, (uint8_t)py)] ^= 0xFF;
-
-        sl_prev_y[col] = (uint8_t)py;
+    /* The wave only spans base_y +-6: work out those 13 row addresses once */
+    for (i = 0; i < 13; i++) {
+        py = (int16_t)base_y - 6 + i;
+        sl_row[i] = (py >= 0 && py < 192) ? SCREEN + scr_off(0, (uint8_t)py) : 0;
     }
+
+    sealine_cols();
 
     sl_drawn = 1;
     sl_phase = (sl_phase + 1) & (SINE_LEN - 1);
-}
-
-uint8_t sealine_get_cull_y(void)
-{
-    /* Bubbles above this y should be culled.
-     * Use base_y minus amplitude as the cull line (conservative). */
-    if (!sl_visible) return 0;
-    if (sl_base_y < 7) return 0;
-    return sl_base_y - 7;
 }
 
 uint8_t sealine_get_clamp_y(void)
 {
     if (!sl_visible) return 0;
     return ((sl_base_y + 6) | 7) + 1;
-}
-
-uint8_t sealine_is_visible(void)
-{
-    return sl_visible;
 }
 
 /* ================================================================== */

@@ -26,7 +26,7 @@ Ordered task list. Each task builds on previous ones. Check off as completed.
   `src/depth.c` with 3 palettes, non-blocking animated transitions (~0.15s), `depth_get_paper()` for compositing. Minimap repaints after transition completes.
 
 - [x] **2.2 Adapt starfield (now bubblefield) for depth layers**
-  Reworked as `src/bubblefield.c` (+ `starfield.c.asm`) with configurable particle counts per depth. Particles reseeded on depth change.
+  Reworked as `src/bubblefield.c` (the old `starfield.c.asm` is in `archive/legacy/`) with configurable particle counts per depth. Particles reseeded on depth change.
 
 - [x] **2.3 Sea line (sinewave)**
   `src/sealine.c` with a 32-entry sine table renderer (±6px). Appears in Depth 1, phase-animates each frame, scrolls off as the player descends. Provides `sealine_get_cull_y()` / `sealine_get_clamp_y()` for culling bubbles above the line.

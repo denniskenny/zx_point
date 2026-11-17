@@ -30,10 +30,6 @@
 
 /* --- Bubblefield parameters --- */
 #define XY_HALF    128      /* x,y range: -128 .. +127  */
-#define XY_SPAN    256      /* XY_HALF * 2              */
-#define Z_MIN      1
-#define Z_MAX      255
-#define FOCAL      128      /* perspective focal length  */
 #define SPEED      3        /* pixels per frame per key  */
 
 /* --- Diver sprite position --- */
@@ -46,9 +42,11 @@
 #define GRID_H  32
 
 /* --- Depth-level bubble counts --- */
-#define BUBBLES_DEPTH1  45
-#define BUBBLES_DEPTH2  35
-#define BUBBLES_DEPTH3  29
+/* Bubbles active at each depth (bubble field cost ~200 T per bubble per
+ * frame, plus drawing for the ones on screen). */
+#define BUBBLES_DEPTH1  90
+#define BUBBLES_DEPTH2  70
+#define BUBBLES_DEPTH3  58
 /* Bubble array size = largest depth count (derived, don't edit) */
 #define BUBBLES_MAX2(a, b)  ((a) > (b) ? (a) : (b))
 #define NUM_BUBBLES  BUBBLES_MAX2(BUBBLES_DEPTH1, BUBBLES_MAX2(BUBBLES_DEPTH2, BUBBLES_DEPTH3))
@@ -109,14 +107,15 @@
 /* The play area is the top 160 rows (rows 0-19 in char coords).        */
 /* The bottom 32 rows (char rows 20-23) are reserved for the minimap    */
 /* and HUD — the bubblefield engine never renders below VIEW_H.         */
-#define VIEW_W       256
 #define VIEW_H       (MINIMAP_ROW * 8)   /* 160 */
 
 /* Horizontal bubble clipping — ~20% inset on each side */
 #define BF_X_MIN     50
 #define BF_X_MAX     206   /* exclusive: sx < 206 to pass */
 
-/* Depth LOD cull — bubbles at z >= this skip projection entirely */
+/* Bubble depth range: bubbles live at z = 1 .. BF_Z_CULL-1 and respawn at
+ * the opposite end when they leave it (further than this is too small to
+ * be worth drawing). */
 #define BF_Z_CULL    160
 
 /* --- Predator types --- */
@@ -140,6 +139,10 @@
 #define PRED_X_MAX  207
 #define PRED_Y_MIN  16
 #define PRED_Y_MAX  143
+
+/* --- Boat intro animation speed --- */
+#define LINTRO_SCROLL_PX     1   /* pixels the boat moves per frame (any 1..8) */
+#define LINTRO_WAVE_FRAMES   2   /* frames per step of the sine wave / boat bob */
 
 /* --- Predator facing --- */
 /* Source art faces right. A predator right of screen centre is drawn  */
