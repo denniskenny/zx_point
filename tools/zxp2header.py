@@ -17,7 +17,11 @@ arranged side-by-side (--horizontal).  Vertical: frame height = total rows
 
 Usage:
   zxp2header.py <input.zxp> <output.h> [--frames N] [--name NAME] [--sp1]
-                [--horizontal] [--downscale]
+                [--horizontal] [--downscale] [--mirror]
+
+The --mirror flag also emits a left-right mirrored copy of every row-major
+frame (and of its downscaled variants) with an "_m" suffix, e.g. ray_f1_m,
+ray_f1_16_m, ray_f1_8_m.
 
 The --sp1 flag outputs sprite data in SP1's column-major (mask, graphic)
 pair format instead of row-major. Each column contains (height_chars + 1)
@@ -177,6 +181,20 @@ def downscale_bytes(data, src_w, src_h, factor):
     return out
 
 
+def mirror_bytes(data, width_px):
+    """Mirror packed row-major pixel bytes left-right.
+
+    Reverses the byte order of each row and the bit order of each byte.
+    width_px must be a multiple of 8 (all row-major sprites are).
+    """
+    bpr = width_px // 8
+    out = []
+    for r in range(0, len(data), bpr):
+        row = data[r:r + bpr]
+        out.extend(int(f"{b:08b}"[::-1], 2) for b in reversed(row))
+    return out
+
+
 def format_c_array(name, data, bytes_per_row=16):
     """Format a byte array as a C static const uint8_t declaration."""
     lines = [f"static const uint8_t {name}[{len(data)}] = {{"]
@@ -217,6 +235,12 @@ def main():
         action="store_true",
         help="Also emit 16x16 and 8x8 nearest-neighbour downscaled arrays "
              "(row-major only, requires 32x32 source frames)",
+    )
+    parser.add_argument(
+        "--mirror",
+        action="store_true",
+        help="Also emit left-right mirrored copies (suffix _m) of every frame "
+             "and downscaled variant (row-major only)",
     )
     parser.add_argument(
         "--horizontal",
@@ -296,6 +320,16 @@ def main():
             "(no --sp1)"
         )
 
+    if args.mirror and (args.sp1 or frame_width % 8):
+        sys.exit("Error: --mirror requires row-major frames with width % 8 == 0")
+
+    def emit(name, data, w):
+        header_lines.append(format_c_array(name, data))
+        header_lines.append("")
+        if args.mirror:
+            header_lines.append(format_c_array(f"{name}_m", mirror_bytes(data, w)))
+            header_lines.append("")
+
     # Generate per-frame arrays
     for frame in range(args.frames):
         if args.horizontal:
@@ -317,16 +351,15 @@ def main():
         else:
             arr_name = f"{base}_f{frame + 1}"
 
-        header_lines.append(format_c_array(arr_name, data))
-        header_lines.append("")
+        if args.sp1:
+            header_lines.append(format_c_array(arr_name, data))
+            header_lines.append("")
+        else:
+            emit(arr_name, data, frame_width)
 
         if args.downscale:
-            ds16 = downscale_bytes(data, 32, 32, 2)
-            ds8 = downscale_bytes(data, 32, 32, 4)
-            header_lines.append(format_c_array(f"{arr_name}_16", ds16))
-            header_lines.append("")
-            header_lines.append(format_c_array(f"{arr_name}_8", ds8))
-            header_lines.append("")
+            emit(f"{arr_name}_16", downscale_bytes(data, 32, 32, 2), 16)
+            emit(f"{arr_name}_8", downscale_bytes(data, 32, 32, 4), 8)
 
     # Attribute array (if present)
     if attr_bytes:
@@ -343,7 +376,7 @@ def main():
     layout = "horizontal" if args.horizontal else "vertical"
     print(
         f"Generated {args.output}: {frame_width}x{frame_height}, "
-        f"{args.frames} frame(s) [{layout}], "
+        f"{args.frames} frame(s) [{layout}]{', +mirrored' if args.mirror else ''}, "
         f"{len(attr_bytes)} attribute byte(s) [{fmt}]"
     )
 

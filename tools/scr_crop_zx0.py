@@ -119,7 +119,16 @@ def main():
         if mirror_col is not None:
             f.write(f"#define GOO_MIRROR_COL {mirror_col}\n")
         f.write("\n")
+        seen = {}
         for name, zdata in compressed:
+            # Identical frames (e.g. two fully revealed GOO frames) share one
+            # copy of the data instead of storing it twice.
+            if zdata in seen:
+                f.write(f"/* {name} is identical to {seen[zdata]} */\n")
+                f.write(f"#define {name} {seen[zdata]}\n\n")
+                print(f"  {name}: duplicate of {seen[zdata]}, not stored")
+                continue
+            seen[zdata] = name
             f.write(f"/* ZX0 compressed cropped screen data ({len(zdata)} bytes) */\n")
             f.write(f"static const unsigned char {name}[] = {{\n")
             for i in range(0, len(zdata), 16):
@@ -131,8 +140,9 @@ def main():
             f.write("};\n\n")
         f.write(f"#endif /* {guard} */\n")
 
-    total = sum(len(z) for _, z in compressed)
-    print(f"\nWritten {dst}: {len(compressed)} arrays, {total} bytes total")
+    uniq = {z for _, z in compressed}
+    print(f"\nWritten {dst}: {len(compressed)} frames, {len(uniq)} stored, "
+          f"{sum(len(z) for z in uniq)} bytes total")
 
 
 if __name__ == "__main__":

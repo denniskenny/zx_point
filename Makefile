@@ -43,10 +43,10 @@ include/diver.h: assets/diver3.zxp tools/zxp2header.py
 
 # Row-major sprites (32x32, 2 frames each, with 16x16 and 8x8 downscaled)
 include/ray.h: assets/ray.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name ray --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name ray --downscale --mirror
 
 include/shark.h: assets/shark.zxp tools/zxp2header.py
-	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name shark --downscale
+	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name shark --downscale --mirror
 
 include/statue.h: assets/statue.zxp tools/zxp2header.py
 	$(ZXP2HEADER) $< $@ --frames 2 --horizontal --name statue --downscale

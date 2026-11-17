@@ -141,6 +141,13 @@
 #define PRED_Y_MIN  16
 #define PRED_Y_MAX  143
 
+/* --- Predator facing --- */
+/* Source art faces right. A predator right of screen centre is drawn  */
+/* mirrored so it always faces the diver. It only flips once its centre */
+/* is more than this many pixels past the centre, so it doesn't flicker */
+/* while hovering on the line.                                          */
+#define PRED_FACE_HYSTERESIS  4
+
 /* --- Predator visibility range (grid cubes, same as treasure) --- */
 #define PRED_VISIBLE_RANGE  4
 

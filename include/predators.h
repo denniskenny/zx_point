@@ -16,6 +16,7 @@ typedef struct {
     uint8_t visible;        /* 1 = within range at same depth */
     uint8_t anim_ctr;       /* animation frame counter */
     uint8_t proximity_ctr;  /* frames player has been in contact range */
+    uint8_t face_left;      /* 1 = draw mirrored (_m) frames, facing left */
     uint16_t grid_move_ctr; /* countdown to next grid move */
 } predator_t;
 
@@ -34,14 +35,9 @@ void predators_spawn(uint8_t n_rays, uint8_t n_sharks, uint8_t n_goos);
 /* Move all predators: grid traversal + screen bounce */
 void predators_update(void);
 
-/* XOR-erase predators from previous frame (call before background) */
-void predators_erase(void);
-
-/* XOR-draw visible predators (call after background) */
-void predators_draw(uint8_t frame_ctr);
-
-/* Reset old-position attrs to background (call after predators_draw) */
-void predators_cleanup_attrs(void);
+/* Erase old + draw new predator sprites in one tight pass (call in the
+ * draw phase). show=0 hides them all (e.g. during a depth transition). */
+void predators_render(uint8_t frame_ctr, uint8_t show);
 
 /* Check player-predator overlap.
  * Returns: 0 = none, 1 = ray/shark damage, 255 = GOO instant death */

@@ -34,14 +34,39 @@ uint8_t pred_ray_count;
 uint8_t pred_shark_count;
 uint8_t pred_goo_count;
 
-/* --- Entity pool for draw/erase tracking --- */
-static entity_pool_t pred_pool;
+/* --- Predator sprite renderer (forked from entity_pool) ---------------
+ * Predators keep their own on-screen slot list instead of the shared
+ * entity_pool used by treasures, so they can be redrawn flicker-free:
+ *   - erase + redraw happen back-to-back in predators_render(), not split
+ *     across the frame with the bubble field drawn in between;
+ *   - old attribute cells are restored BEFORE new sprites set theirs, so an
+ *     overlapping old position can't wipe the new sprite's colour;
+ *   - sprites whose position, scale, frame and colour are unchanged are
+ *     left on screen untouched (no erase/redraw at all). */
+typedef struct {
+    uint8_t x, y, scale, attr;
+    const uint8_t *frame;
+} pred_slot_t;
+
+static pred_slot_t pred_on[MAX_VISIBLE_ENTITIES];   /* currently on screen */
+static uint8_t     pred_on_n;
+static pred_slot_t pred_new[MAX_VISIBLE_ENTITIES];  /* this frame's targets */
+static uint8_t     pred_new_n;
+static uint8_t     pred_keep[MAX_VISIBLE_ENTITIES]; /* new slot already shown */
+
+/* Same layout rules as entity_render.c: centre smaller scales in 32 px */
+static const uint8_t pscale_x_off[] = { 0, 8, 12, 14 };
+static const uint8_t pscale_y_off[] = { 0, 16, 24, 28 };
+static const uint8_t pscale_attr_wh[] = { 4, 2, 1, 1 };
 
 /* --- Downscaled predator frame tables --- */
-static const uint8_t * const ray_f_16[] = { ray_f1_16, ray_f2_16 };
-static const uint8_t * const ray_f_8[]  = { ray_f1_8,  ray_f2_8 };
-static const uint8_t * const shark_f_16[] = { shark_f1_16, shark_f2_16 };
-static const uint8_t * const shark_f_8[]  = { shark_f1_8,  shark_f2_8 };
+/* Index = face_left * 2 + anim frame. Art faces right; _m = mirrored. */
+static const uint8_t * const ray_f_32[]   = { ray_f1,    ray_f2,    ray_f1_m,    ray_f2_m };
+static const uint8_t * const ray_f_16[]   = { ray_f1_16, ray_f2_16, ray_f1_16_m, ray_f2_16_m };
+static const uint8_t * const ray_f_8[]    = { ray_f1_8,  ray_f2_8,  ray_f1_8_m,  ray_f2_8_m };
+static const uint8_t * const shark_f_32[] = { shark_f1,    shark_f2,    shark_f1_m,    shark_f2_m };
+static const uint8_t * const shark_f_16[] = { shark_f1_16, shark_f2_16, shark_f1_16_m, shark_f2_16_m };
+static const uint8_t * const shark_f_8[]  = { shark_f1_8,  shark_f2_8,  shark_f1_8_m,  shark_f2_8_m };
 
 /* --- Grid-move intervals indexed by predator type --- */
 static const uint16_t grid_intervals[3] = {
@@ -58,7 +83,7 @@ static const uint16_t grid_intervals[3] = {
 /* ------------------------------------------------------------------ */
 void predators_init(void)
 {
-    entity_pool_init(&pred_pool);
+    pred_on_n = 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -77,6 +102,7 @@ static void spawn_one(uint8_t idx, uint8_t type)
     p->visible = 0;
     p->anim_ctr = pred_rand();
     p->proximity_ctr = 0;
+    p->face_left = 0;
     p->grid_move_ctr = grid_intervals[type];
 }
 
@@ -180,28 +206,54 @@ void predators_update(void)
 /* ------------------------------------------------------------------ */
 /* XOR-erase predators drawn last frame (call BEFORE background update)*/
 /* ------------------------------------------------------------------ */
-void predators_erase(void)
+static void pred_xor(const pred_slot_t *sl)
 {
-    entity_pool_erase(&pred_pool);
+    switch (sl->scale) {
+    case SCALE_32:
+        xor32_spr = sl->frame; xor32_x = sl->x; xor32_y = sl->y;
+        xor32_attr = sl->attr;
+        xor_sprite_32_fast();
+        break;
+    case SCALE_16:
+        xor16_spr = sl->frame; xor16_x = sl->x; xor16_y = sl->y;
+        xor16_attr = sl->attr;
+        xor_sprite_16();
+        break;
+    case SCALE_8:
+        xor8_spr = sl->frame; xor8_x = sl->x; xor8_y = sl->y;
+        xor8_attr = sl->attr;
+        xor_sprite_8();
+        break;
+    case SCALE_4:
+        xor4_x = sl->x; xor4_y = sl->y; xor4_attr = sl->attr;
+        xor_block_4();
+        break;
+    }
+}
+
+static void pred_set_attr(const pred_slot_t *sl, uint8_t attr)
+{
+    uint8_t wh = pscale_attr_wh[sl->scale];
+    set_attr_rect(sl->x >> 3, sl->y >> 3, wh, wh, attr);
 }
 
 /* ------------------------------------------------------------------ */
 /* Select predator frame at the given scale                            */
 /* ------------------------------------------------------------------ */
 static const uint8_t *pred_pick_frame(uint8_t type, uint8_t scale,
-                                      uint8_t frame_ctr)
+                                      uint8_t frame_ctr, uint8_t face_left)
 {
-    uint8_t fi = (frame_ctr & 0x08) ? 1 : 0;
+    uint8_t fi = ((frame_ctr & 0x08) ? 1 : 0) | (face_left << 1);
     if (type == PRED_RAY) {
         switch (scale) {
-        case SCALE_32: return fi ? ray_f2 : ray_f1;
+        case SCALE_32: return ray_f_32[fi];
         case SCALE_16: return ray_f_16[fi];
         case SCALE_8:  return ray_f_8[fi];
         default:       return (void *)0;
         }
     } else {
         switch (scale) {
-        case SCALE_32: return fi ? shark_f2 : shark_f1;
+        case SCALE_32: return shark_f_32[fi];
         case SCALE_16: return shark_f_16[fi];
         case SCALE_8:  return shark_f_8[fi];
         default:       return (void *)0;
@@ -210,19 +262,23 @@ static const uint8_t *pred_pick_frame(uint8_t type, uint8_t scale,
 }
 
 /* ------------------------------------------------------------------ */
-/* XOR-draw visible predators (call AFTER background update)           */
+/* Erase old + draw new predator sprites in one tight pass.            */
+/* show=0 hides them all (e.g. during a depth transition).            */
 /* ------------------------------------------------------------------ */
-void predators_draw(uint8_t frame_ctr)
+void predators_render(uint8_t frame_ctr, uint8_t show)
 {
-    uint8_t i, scale;
+    uint8_t i, j, scale;
     predator_t *p;
     int8_t dgz;
     int16_t dx_sub;
-    uint8_t sx, attr;
+    uint8_t sx, ax, ay, attr, bg_attr;
+    pred_slot_t *n;
 
+    /* --- 1. Work out this frame's sprites (no screen writes yet) --- */
+    pred_new_n = 0;
     attr = depth_get_paper() | 0x04;
-
-    for (i = 0; i < predator_count; i++) {
+    for (i = 0; show && i < predator_count &&
+                pred_new_n < MAX_VISIBLE_ENTITIES; i++) {
         p = &predators[i];
         if (!p->visible) continue;
 
@@ -235,19 +291,47 @@ void predators_draw(uint8_t frame_ctr)
                  + ((CUBE_SUB_XY / 2) - player.sub_x);
         sx = entity_screen_x(dx_sub);
 
-        if (!entity_pool_draw(&pred_pool, sx, env_entity_y, scale,
-                              pred_pick_frame(p->type, scale, frame_ctr),
-                              attr))
-            break;
-    }
-}
+        /* Face the diver: sprite centre is sx + 16 at every scale */
+        {
+            uint8_t cx = sx + 16;
+            if (cx > 128 + PRED_FACE_HYSTERESIS)      p->face_left = 1;
+            else if (cx < 128 - PRED_FACE_HYSTERESIS) p->face_left = 0;
+        }
 
-/* ------------------------------------------------------------------ */
-/* Reset old-position attrs after drawing at new position              */
-/* ------------------------------------------------------------------ */
-void predators_cleanup_attrs(void)
-{
-    entity_pool_cleanup_attrs(&pred_pool);
+        ax = (sx + pscale_x_off[scale]) & 0xF8;
+        ay = env_entity_y + pscale_y_off[scale];
+        if (ay >= VIEW_H) continue;
+
+        n = &pred_new[pred_new_n++];
+        n->x = ax; n->y = ay; n->scale = scale; n->attr = attr;
+        n->frame = pred_pick_frame(p->type, scale, frame_ctr, p->face_left);
+    }
+
+    /* --- 2. Erase sprites that changed; restore their attr cells --- */
+    bg_attr = depth_get_paper() | (ATTR[0] & 0x07);
+    for (j = 0; j < pred_new_n; j++) pred_keep[j] = 0;
+    for (i = 0; i < pred_on_n; i++) {
+        pred_slot_t *o = &pred_on[i];
+        for (j = 0; j < pred_new_n; j++) {
+            n = &pred_new[j];
+            if (!pred_keep[j] && n->x == o->x && n->y == o->y &&
+                n->scale == o->scale && n->frame == o->frame &&
+                n->attr == o->attr)
+                break;
+        }
+        if (j < pred_new_n) { pred_keep[j] = 1; continue; }
+        pred_xor(o);
+        pred_set_attr(o, bg_attr);
+    }
+
+    /* --- 3. Draw new sprites; re-assert attrs of unchanged ones --- */
+    for (j = 0; j < pred_new_n; j++) {
+        n = &pred_new[j];
+        if (pred_keep[j]) pred_set_attr(n, n->attr);
+        else              pred_xor(n);
+        pred_on[j] = *n;
+    }
+    pred_on_n = pred_new_n;
 }
 
 /* ------------------------------------------------------------------ */
@@ -303,6 +387,11 @@ uint8_t predators_check_collision(void)
 /* ------------------------------------------------------------------ */
 void predators_hide_all(void)
 {
-    entity_pool_erase(&pred_pool);
-    entity_pool_cleanup_attrs(&pred_pool);
+    uint8_t i;
+    uint8_t bg_attr = depth_get_paper() | (ATTR[0] & 0x07);
+    for (i = 0; i < pred_on_n; i++) {
+        pred_xor(&pred_on[i]);
+        pred_set_attr(&pred_on[i], bg_attr);
+    }
+    pred_on_n = 0;
 }

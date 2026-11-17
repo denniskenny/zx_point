@@ -289,6 +289,13 @@ static uint8_t lintro_diver_frame;  /* frame index currently XOR'd */
 static uint8_t lintro_saved_vsync; /* saved vsync_mode for restore */
 static uint8_t lintro_sl_prev[32]; /* sea line prev Y per column */
 
+/* The intro sea line only ever spans LINTRO_SEA_Y +-6 (13 pixel rows), so
+ * cache those rows' screen addresses once instead of calling scr_off()
+ * twice per column per frame. */
+#define LINTRO_SL_TOP   (LINTRO_SEA_Y - 6)
+#define LINTRO_SL_ROWS  13
+static uint8_t *lintro_sl_row[LINTRO_SL_ROWS];
+
 /* Precached shifted copies of the boat: (w+1) bytes/row, carry column at
  * right. Scroll step is 2px and px stays even, so only shifts 2/4/6 occur
  * (shift 0 uses boat_bitmap directly). Each variant is built once. */
@@ -357,31 +364,28 @@ static uint8_t lintro_boat_y(void)
 /* XOR sea line: combined erase-old + draw-new, no attrs */
 static void lintro_sealine_tick(void)
 {
-    uint8_t col, idx;
-    int16_t sy;
-    int8_t bcol = (int8_t)(lintro_px >> 3);
-    int8_t bcol_end = bcol + (int8_t)((lintro_px & 7)
-                     ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W);
+    uint8_t col, sy, prev, lo, hi;
+    int16_t bcol = lintro_px >> 3;
+    int16_t bcol_end = bcol + ((lintro_px & 7) ? LINTRO_BOAT_W + 1 : LINTRO_BOAT_W);
+
+    /* Columns [lo, hi) are under the boat: no sea line drawn there */
+    lo = (bcol < 0) ? 0 : (bcol > 32) ? 32 : (uint8_t)bcol;
+    hi = (bcol_end < 0) ? 0 : (bcol_end > 32) ? 32 : (uint8_t)bcol_end;
 
     for (col = 0; col < 32; col++) {
-        if ((int8_t)col >= bcol && (int8_t)col < bcol_end) {
+        prev = lintro_sl_prev[col];
+        if (col >= lo && col < hi) {
             lintro_sl_prev[col] = 255;
             continue;
         }
 
-        idx = (col + lintro_sea_phase) & 31;
-        sy = (int16_t)LINTRO_SEA_Y + sine_tab[idx];
-        if (sy < 0 || sy >= 192) sy = 255;   /* offscreen sentinel */
+        /* row index 0..12 (LINTRO_SEA_Y + sine_tab, always on screen) */
+        sy = (uint8_t)(6 + sine_tab[(col + lintro_sea_phase) & 31]);
+        if (prev == sy) continue;                       /* unchanged */
 
-        if (lintro_sl_prev[col] == (uint8_t)sy) continue;  /* unchanged */
-
-        if (lintro_sl_prev[col] < 192)
-            SCREEN[scr_off(col << 3, lintro_sl_prev[col])] ^= 0xFF;
-
-        if (sy != 255)
-            SCREEN[scr_off(col << 3, (uint8_t)sy)] ^= 0xFF;
-
-        lintro_sl_prev[col] = (uint8_t)sy;
+        if (prev != 255) lintro_sl_row[prev][col] ^= 0xFF;
+        lintro_sl_row[sy][col] ^= 0xFF;
+        lintro_sl_prev[col] = sy;
     }
 }
 
@@ -407,6 +411,8 @@ static game_state_t state_level_intro_init(void)
     lintro_drawn = 0;
     lintro_diver_drawn = 0;
     for (i = 0; i < 32; i++) lintro_sl_prev[i] = 255;
+    for (i = 0; i < LINTRO_SL_ROWS; i++)
+        lintro_sl_row[i] = SCREEN + scr_off(0, LINTRO_SL_TOP + i);
     key_debounce = 1;
 
     return STATE_LEVEL_INTRO;
@@ -504,8 +510,18 @@ static game_state_t state_level_intro_tick(void)
     if (new_col != old_col && old_col >= 0)
         set_attr_rect((uint8_t)old_col, LINTRO_ATTR_ROW,
                       1, LINTRO_ATTR_H, LINTRO_BG_ATTR);
-    if (!lintro_drawn || lintro_px != lintro_prev_px)
+    /* The boat moves right by at most one char column per 4 ticks, so after
+     * the first full paint only the column entering on the right needs the
+     * boat colour (the column leaving on the left is cleared above). */
+    if (!lintro_drawn) {
         lintro_set_attr(lintro_px, LINTRO_BOAT_ATTR);
+    } else if (lintro_px != lintro_prev_px) {
+        int16_t r_new = (lintro_px + LINTRO_BOAT_W * 8 - 1) >> 3;
+        int16_t r_old = (lintro_prev_px + LINTRO_BOAT_W * 8 - 1) >> 3;
+        if (r_new != r_old && r_new >= 0 && r_new < 32)
+            set_attr_rect((uint8_t)r_new, LINTRO_ATTR_ROW, 1, LINTRO_ATTR_H,
+                          LINTRO_BOAT_ATTR);
+    }
 
     /* Diver: init Y on first DESCEND frame */
     if (lintro_phase == LINTRO_DESCEND && lintro_timer == 0) {
@@ -634,7 +650,6 @@ static game_state_t state_game_tick(void)
     /* === DRAW PHASE =============================================== */
     vsync_wait();
 
-    predators_erase();
     treasure_erase();
 
     {
@@ -700,9 +715,7 @@ static game_state_t state_game_tick(void)
         }
     }
 
-    if (!depth_is_transitioning())
-        predators_draw(frame);
-    predators_cleanup_attrs();
+    predators_render(frame, !depth_is_transitioning());
     treasure_draw(frame);
     sprites_player_draw((frame >> 3) % diver_frame_count);
     if (player.invuln_timer > 0 && (player.invuln_timer & 0x02))
